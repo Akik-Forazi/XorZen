@@ -1,0 +1,22 @@
+# Xorzen requirements (Python >=3.10, <3.14 — torch has no 3.14 wheels)
+# Core runtime (from pyproject.toml + actual imports verified in xorzen/)
+# uncomment torch if needed. or not installed previously.
+# torch==2.13.0            # CPU build: pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu
+torch
+numpy>=1.24
+pydantic>=2.0
+psutil
+einops
+tqdm
+tokenizers>=0.19
+sentencepiece
+transformers>=4.30
+scipy>=1.10
+
+# Optional — used only by scripts/ and benchmarks/ (reports, plotting, data loading)
+# matplotlib
+# reportlab
+# pyyaml
+# torchvision
+# datasets
+# accelerate
