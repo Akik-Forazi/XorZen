@@ -2,7 +2,7 @@ Metadata-Version: 2.4
 Name: xorzen
 Version: 0.2.4
 Summary: Advanced Hybrid Transformer Framework with MoE, SSM, and Adaptive Routing
-Home-page: https://github.com/Akik-Forazi/xorzen
+Home-page: https://github.com/Akik-Forazi/XorZen
 Author: Akik Faraji
 Author-email: Akik Faraji <akikfaraji@gmail.com>
 License: XORZENX Proprietary License
@@ -101,10 +101,10 @@ License: XORZENX Proprietary License
                                       All Rights Reserved.
         ==============================================================================
         
-Project-URL: Homepage, https://github.com/Akik-Faraji/
-Project-URL: Documentation, https://github.com/Akik-Faraji/xorzen/wiki
-Project-URL: Repository, https://github.com/Akik-Faraji/xorzen
-Project-URL: Issues, https://github.com/Akik-Faraji/xorzen/issues
+Project-URL: Homepage, https://github.com/Akik-Forazi/XorZen
+Project-URL: Documentation, https://github.com/Akik-Forazi/XorZen/wiki
+Project-URL: Repository, https://github.com/Akik-Forazi/XorZen
+Project-URL: Issues, https://github.com/Akik-Forazi/XorZen/issues
 Keywords: deep-learning,transformer,moe,ssm,state-space-model,mixture-of-experts,ai,machine-learning,pytorch,nlp
 Classifier: Development Status :: 3 - Alpha
 Classifier: Intended Audience :: Developers
@@ -197,7 +197,7 @@ The XORZENX thingy has some models already made for you:
 
 If you're a super smart coder and want to help, go to our GitHub! It's where all the cool kids hang out.
 
-**GitHub (My Personal Repo, kinda)**: [github.com/Akik-Forazi/XORZENX.git](github.com/Akik-Forazi/XORZENX.git)
+**GitHub (My Personal Repo, kinda)**: [github.com/Akik-Forazi/XorZen.git](https://github.com/Akik-Forazi/XorZen.git)
 
 ## The Legal Stuff (License)
 

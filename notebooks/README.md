@@ -63,7 +63,7 @@ using gradient accumulation (already default: `GRADIENT_ACCUMULATION_STEPS=8`).
 
 The notebook installs XORZEN from GitHub:
 ```
-pip install git+https://github.com/akikfaraji/DevNet.git
+pip install git+https://github.com/Akik-Forazi/XorZen.git
 ```
 
 If you have a pre-built wheel, set `XORZEN_WHEEL_PATH` in the configuration cell.

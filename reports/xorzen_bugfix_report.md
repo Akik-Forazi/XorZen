@@ -1,6 +1,6 @@
 # XORZEN Bugfix + 3x Verification Report
 
-**Commit audited**: `4b2bc57` (2026-08-29) — latest HEAD of `akikfaraji/DevNet`  
+**Commit audited**: `4b2bc57` (2026-08-29) — latest HEAD of `Akik-Forazi/XorZen`  
 **Report date**: 2026-09-01  
 **Scope**: Fix reproducible correctness blockers, verify 3x, measure performance  
 

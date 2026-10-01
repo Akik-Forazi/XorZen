@@ -191,7 +191,7 @@ def info():
     
     print("\n" + "="*70)
     print("Quick Start: import xorzen; help(xorzen)")
-    print("Docs: https://github.com/Akik-Forazi/xorzen.git")
+    print("Docs: https://github.com/Akik-Forazi/XorZen")
     
     status = {
         'version': __version__,

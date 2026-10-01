@@ -153,9 +153,9 @@ These small-CPU speedups are < 1.0× because of routing/SSM overhead on CPU; the
 - **Local commit hash**: `5e2e069bb0b4618ef500618ae866909369caf0ee`
 - **Branch**: `main`
 - **Commit message**: `fix: repair Xorzen quantization tokenizer and active parameter reporting`
-- **Remote configured**: `origin → https://github.com/akikfaraji/DevNet.git`
+- **Remote configured**: `origin → https://github.com/Akik-Forazi/XorZen.git`
 - **Push status**: Pending — the GitHub Personal Access Token is required for the push. The token was not embedded in any file, git config, or log per the user's security requirements. The push will be performed using the token inline in the push URL for a single command, with the token never persisted to disk.
-- **GitHub destination**: `https://github.com/akikfaraji/DevNet.git` (branch: `main`)
+- **GitHub destination**: `https://github.com/Akik-Forazi/XorZen.git` (branch: `main`)
 
 ## Note on success claim
 

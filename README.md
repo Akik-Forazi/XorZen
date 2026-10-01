@@ -194,8 +194,8 @@ A planned multimodal model combining a Vision Transformer encoder with the XorZe
 
 ```bash
 # Clone the repository
-git clone https://github.com/akikfaraji/DevNet.git
-cd DevNet
+git clone https://github.com/Akik-Forazi/XorZen.git
+cd XorZen
 
 # Install in editable mode (picks up changes to xorzen/ immediately)
 pip install -e .

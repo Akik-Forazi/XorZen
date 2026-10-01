@@ -15,12 +15,13 @@ Read this file first. Then read the supplementary docs in `docs/agent/`.
 | Project | XORZEN — a conditional-compute LLM architecture |
 | Target version | `1.0.1` |
 | Current version string | `0.3.0` (bump NOT done yet — see Task 1) |
-| DevNet repo | `https://github.com/akikfaraji/DevNet.git` |
-| Old XorZen 0.2.4 | `https://github.com/Akik-Forazi/XorZen.git` |
+| Current repo (XorZen) | `https://github.com/Akik-Forazi/XorZen.git` |
+| Old DevNet repo (deleted) | `https://github.com/akikfaraji/DevNet.git` |
+| Old XorZen 0.2.4 (deleted) | `https://github.com/Akik-Forazi/XorZen.git` |
 
 **Local paths:**
-- DevNet (working/target): `c:\Users\user\akik\programing\ai\DevNet`
-- XorZen 0.2.4 (reference, read-only): `c:\Users\user\akik\programing\ai\xorzen_0.2.4`
+- XorZen (working/target): `c:\Users\user\akik\programing\ai\DevNet`
+- Old XorZen 0.2.4 (reference, read-only): `c:\Users\user\akik\programing\ai\xorzen_0.2.4`
 
 ---
 
@@ -93,7 +94,7 @@ Create `docs/xorzen-v1.0.1/` with:
 cd c:\Users\user\akik\programing\ai\DevNet
 git add -A
 git commit -m "feat: XORZEN v1.0.1 - fix critical MoE registration, batch leakage, agentic dead code; restore GreedModel and .xorm runtime"
-git push
+git push origin main
 ```
 
 ### TASK 6 — 10M real-data validation (GPU recommended)

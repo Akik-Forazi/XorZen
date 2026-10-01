@@ -5,7 +5,7 @@ XORZEN Colab Training Script
 Trains a zero model on Project Gutenberg text data with GPU support.
 
 Usage (Google Colab):
-    !pip install git+https://github.com/akikfaraji/DevNet.git
+    !pip install git+https://github.com/Akik-Forazi/XorZen.git
     !python train_colab.py --model zero_10M --epochs 3
 
 Usage (local):
@@ -49,7 +49,7 @@ def setup_colab():
         print("Installing XORZEN from GitHub...")
         subprocess.run([
             sys.executable, "-m", "pip", "install",
-            "git+https://github.com/akikfaraji/DevNet.git"
+            "git+https://github.com/Akik-Forazi/XorZen.git"
         ], check=True)
 
     # Install Gutenberg dataset tools
