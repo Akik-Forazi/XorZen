@@ -58,6 +58,8 @@ class ModelSize(Enum):
     XL_7B = "7B"
     XXL_13B = "13B"
     XXXL_70B = "70B"
+    GREED_TINY = "greed_tiny"
+    GREED_SMALL = "greed_small"
 
 
 class ArchitectureVariant(Enum):
@@ -2111,7 +2113,6 @@ class ConfigFactory:
                 target_active_ratio=0.06,
                 pad_token_id=0,
             )
-        
         elif model_size == ModelSize.XL_7B:
             _h = 1792
             config_data.update(
@@ -2132,7 +2133,51 @@ class ConfigFactory:
                 target_active_ratio=0.05,
                 pad_token_id=0,
             )
-        
+
+        elif model_size == ModelSize.GREED_TINY:
+            _h = 64
+            config_data.update(
+                model_name="greed_tiny",
+                vocab_size=10000,
+                context_length=512,
+                hidden_size=_h,
+                num_layers=3,
+                num_attention_heads=4,
+                max_depth=3,
+                min_depth=1,
+                width_choices=(_h,),
+                cot_dim=_h // 4,
+                cot_components=6,
+                expert_count=1,
+                top_k_experts=1,
+                router_hidden_dim=_h // 4,
+                use_sliced_ffn=True,
+                pad_token_id=0,
+                gradient_checkpointing=False,
+            )
+
+        elif model_size == ModelSize.GREED_SMALL:
+            _h = 256
+            config_data.update(
+                model_name="greed_small",
+                vocab_size=10000,
+                context_length=1024,
+                hidden_size=_h,
+                num_layers=6,
+                num_attention_heads=8,
+                max_depth=6,
+                min_depth=1,
+                width_choices=(_h,),
+                cot_dim=_h // 4,
+                cot_components=6,
+                expert_count=1,
+                top_k_experts=1,
+                router_hidden_dim=_h // 4,
+                use_sliced_ffn=True,
+                pad_token_id=0,
+                gradient_checkpointing=False,
+            )
+
         else:
             raise ValueError(f"Unsupported model size: {model_size}")
         

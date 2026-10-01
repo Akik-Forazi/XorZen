@@ -12,7 +12,7 @@ fixes memory_vault gradient path, fixes IGRIS_Micro num_attention_heads, and
 improves wheel build configuration.
 """
 
-__version__ = "0.3.0"
+__version__ = "1.0.1"
 __author__ = "Akik faraji"
 
 
