@@ -231,6 +231,15 @@ class SlicedFFN(nn.Module):
             x_sel = x_norm[mask]  # [n_selected, H]
             # Process with sliced matmul at width w
             y_sel = self._forward_single_width_flat(x_sel, w)  # [n_selected, H]
+            # Cast y_sel to match output's dtype. Under torch.autocast(bf16/fp16),
+            # F.linear inside _forward_single_width_flat produces a low-precision
+            # tensor, but output was allocated with x_norm's dtype (typically fp32
+            # from the preceding LayerNorm). Without this cast, the index_put
+            # below crashes with:
+            #   RuntimeError: Index put requires the source and destination dtypes
+            #   match, got Float for the destination and BFloat16 for the source.
+            if y_sel.dtype != output.dtype:
+                y_sel = y_sel.to(output.dtype)
             # Scatter back
             output[mask] = y_sel
 
