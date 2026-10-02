@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Get Started | XorZen</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
+    <style>
+        code {
+            background: rgba(0, 210, 255, 0.1);
+            color: var(--accent-blue);
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+        .code-block {
+            background: #111;
+            padding: 1.5rem;
+            border-radius: 10px;
+            margin: 1.5rem 0;
+            border: 1px solid var(--border-color);
+            position: relative;
+            overflow-x: auto;
+        }
+        .code-block::before {
+            content: "CLI";
+            position: absolute;
+            top: 0;
+            right: 0;
+            padding: 0.2rem 0.5rem;
+            font-size: 0.7rem;
+            background: var(--border-color);
+            color: var(--text-secondary);
+        }
+    </style>
+</head>
+<body>
+    <nav>
+        <div class="logo">XORZEN</div>
+        <ul class="nav-links">
+            <li><a href="index.html">Home</a></li>
+            <li><a href="architecture.html">Architecture</a></li>
+            <li><a href="models.html">Models</a></li>
+            <li><a href="start.html" class="active">Get Started</a></li>
+            <li><a href="about.html">FRAZIYM</a></li>
+        </ul>
+    </nav>
+
+    <section style="margin-top: 80px;">
+        <div class="section-title">
+            <h1>Deploying Superintelligence</h1>
+            <p>From installation to your first training run.</p>
+        </div>
+
+        <div class="card">
+            <h3>1. Setup Environment</h3>
+            <p>Ensure you have Python 3.13+ and PyTorch installed.</p>
+            <div class="code-block">
+                pip install -r requirements.txt<br>
+                python speed/setup_speed.py build_ext --inplace
+            </div>
+        </div>
+
+        <div class="card" style="margin-top: 2rem;">
+            <h3>2. Prepare Your Data</h3>
+            <p>Convert your raw text into XorZen's high-speed binary format.</p>
+            <div class="code-block">
+                from xorzen.data import txt_to_bin<br>
+                from xorzen.tokenizer import load_pretrained<br><br>
+                tokenizer = load_pretrained('xorzen_65k')<br>
+                txt_to_bin('my_data.txt', 'train.bin', tokenizer)
+            </div>
+        </div>
+
+        <div class="card" style="margin-top: 2rem;">
+            <h3>3. Initialize the Flagship</h3>
+            <p>Load the 277M flagship model and apply the Speed Booster.</p>
+            <div class="code-block">
+                import xorzen<br>
+                from xorzen.speed.booster import SpeedBooster, SpeedProfile<br><br>
+                model = xorzen.zero_277M()<br>
+                booster = SpeedBooster(model.config, profile=SpeedProfile.LIGHTNING)<br>
+                booster.apply(model)
+            </div>
+        </div>
+
+        <div class="card" style="margin-top: 2rem;">
+            <h3>4. Start Training</h3>
+            <div class="code-block">
+                from xorzen.training import train<br>
+                trainer = train(model, 'train.bin', epochs=10)<br>
+                trainer.train()
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <p class="copyright">© 2026 FRAZIYM AI. Designed by Akik Faraji.</p>
+    </footer>
+    <script src="script.js"></script>
+</body>
+</html>

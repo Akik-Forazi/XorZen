@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Architecture | XorZen</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
+</head>
+<body>
+    <nav>
+        <div class="logo">XORZEN</div>
+        <ul class="nav-links">
+            <li><a href="index.html">Home</a></li>
+            <li><a href="architecture.html" class="active">Architecture</a></li>
+            <li><a href="models.html">Models</a></li>
+            <li><a href="start.html">Get Started</a></li>
+            <li><a href="about.html">FRAZIYM</a></li>
+        </ul>
+    </nav>
+
+    <section style="margin-top: 80px;">
+        <div class="section-title">
+            <h1>The HASS Paradigm</h1>
+            <p>Moving beyond static transformers to dynamic, hybrid pathways.</p>
+        </div>
+
+        <div class="grid">
+            <div class="card">
+                <h3>SSM (State Space Models)</h3>
+                <p>We use S4D (Structured Diagonal) kernels with an O(L log L) parallel scan. This provides the model with linear scaling for infinite-length context windows, outperforming standard self-attention on long sequences.</p>
+            </div>
+            <div class="card">
+                <h3>Local Attention</h3>
+                <p>High-resolution local context is maintained through sliding-window multi-head attention, ensuring the model preserves fine-grained semantic relationships.</p>
+            </div>
+            <div class="card">
+                <h3>Adaptive Router</h3>
+                <p>The "brain" of the HASS block. It uses uncertainty and complexity metrics to decide whether a token needs full attention, a fast SSM pass, or can skip the layer entirely.</p>
+            </div>
+        </div>
+
+        <div class="card" style="margin-top: 4rem;">
+            <h3>ZMoE: Disk-Based Intelligence</h3>
+            <p>Traditional MoE requires massive VRAM to keep experts in memory. XorZen-Zero solves this by sharding experts to disk and using a high-speed LRU (Least Recently Used) cache. This allows a 277M model with 192 experts to run on a standard CPU with 16GB RAM, as only the active experts are swapped into memory.</p>
+        </div>
+    </section>
+
+    <footer>
+        <p class="copyright">© 2026 FRAZIYM AI. Designed by Akik Faraji.</p>
+    </footer>
+    <script src="script.js"></script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+{
+  "repoPath": "C:\\Users\\akikf\\programing\\ai\\xorzen_0.2.4\\xorzen.cpp",
+  "lastCommit": "",
+  "indexedAt": "2026-06-17T04:23:14.920Z",
+  "stats": {
+    "files": 110,
+    "nodes": 6235,
+    "edges": 12192,
+    "communities": 281,
+    "processes": 300,
+    "embeddings": 0
+  },
+  "capabilities": {
+    "graph": {
+      "provider": "ladybugdb",
+      "status": "available"
+    },
+    "fts": {
+      "provider": "ladybugdb-fts",
+      "status": "available"
+    },
+    "vectorSearch": {
+      "provider": "exact-scan",
+      "status": "unavailable",
+      "exactScanLimit": 10000,
+      "reason": "LadybugDB VECTOR is disabled on this platform; semantic search uses exact scan when embeddings exist."
+    }
+  }
+}

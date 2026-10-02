@@ -1,0 +1,2 @@
+wsl: gemini --resume b0e5e487-fa12-4752-bb6e-7bd901addc1d 
+powershell: gemini --resume 'd4d01cbe-5f79-434c-8401-bdefa49fa9d6'
