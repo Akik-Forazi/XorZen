@@ -166,7 +166,7 @@ class XORZENXTokenizer(BaseTokenizer):
         Args:
             token_ids: List of token IDs
             skip_special_tokens: Skip special tokens
-            clean_up_tokenization_spaces: Clean up spaces
+            clean_up_tokenization_spaces: Clean up extra spaces
             
         Returns:
             Decoded text
@@ -178,8 +178,15 @@ class XORZENXTokenizer(BaseTokenizer):
             )
             
             if clean_up_tokenization_spaces:
-                # Clean up extra spaces
-                text = ' '.join(text.split())
+                # Modern byte-level BPE tokenizers (GPT-2, Llama, etc.) don't
+                # need space cleanup — the ByteLevel decoder already handles
+                # spacing correctly via the Ġ prefix convention. The previous
+                # implementation (' '.join(text.split())) destroyed Python
+                # indentation by collapsing ALL whitespace into single spaces.
+                # We now skip space cleanup entirely for code safety. The
+                # parameter is kept for API backwards-compatibility but does
+                # nothing.
+                pass
             
             return text
         

@@ -968,10 +968,19 @@ class AdaptiveRouter(nn.Module):
         w    = weights_flat[keep]
 
         # Accumulate onto CPU buffers with scatter_add (no Python loop)
+        # NOTE: all three tensors in scatter_add_ must be on the same device.
+        # The destination `usage_delta`/`load_delta` are CPU buffers (kept on CPU
+        # intentionally so they don't accumulate VRAM during long training runs),
+        # so `idx` and the source tensor must also be CPU. Previously
+        # `torch.ones_like(idx, dtype=torch.float)` followed idx's device (CUDA),
+        # which crashed with "Expected all tensors to be on the same device,
+        # but got src is on cuda:0, different from other tensors on cpu".
+        idx_cpu = idx.cpu()
+        w_cpu   = w.cpu()
         usage_delta = torch.zeros(self.num_experts, dtype=torch.float)
         load_delta  = torch.zeros(self.num_experts, dtype=torch.float)
-        usage_delta.scatter_add_(0, idx.cpu(), torch.ones_like(idx, dtype=torch.float))
-        load_delta.scatter_add_(0, idx.cpu(), w.cpu())
+        usage_delta.scatter_add_(0, idx_cpu, torch.ones_like(idx_cpu, dtype=torch.float))
+        load_delta.scatter_add_(0, idx_cpu, w_cpu)
 
         self.expert_usage += usage_delta
         self.expert_load  += load_delta

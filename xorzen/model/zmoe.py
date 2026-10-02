@@ -631,13 +631,19 @@ class ShardedExpertFabric(nn.Module):
                 weighted_output = expert_output * token_weights
                 output[token_indices] += weighted_output
                 
-                # Update statistics
-                avg_weight = token_weights.mean().item()
-                self.expert_stats[expert_id].update(
-                    weight=avg_weight,
-                    was_cached=True,
-                    load_time=0.0
-                )
+                # Update statistics — skip during training to avoid .item() CPU sync.
+                # The .item() call forces a CPU←GPU synchronization which stalls the
+                # GPU pipeline. Under nn.DataParallel this happens on EACH replica,
+                # doubling the sync overhead. The stats are diagnostic-only (not in
+                # the autograd graph) so skipping them during training has zero
+                # impact on loss or gradients.
+                if not self.training:
+                    avg_weight = token_weights.mean().item()
+                    self.expert_stats[expert_id].update(
+                        weight=avg_weight,
+                        was_cached=True,
+                        load_time=0.0
+                    )
 
         # NOTE: do NOT re-normalize by sum(expert_weights).
         # The MoE output is sum_k w_k * E_k(x), NOT a weighted average.

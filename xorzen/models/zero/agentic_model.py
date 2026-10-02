@@ -268,8 +268,22 @@ class ZeroAgenticModel(BaseModel):
             loss = F.cross_entropy(shift_logits.view(-1, self.config.vocab_size), shift_labels.view(-1))
             # Reward thinking (subtract ponder cost)
             loss = loss - 0.01 * ponder_cost
+
+            # Action head entropy regularization — ensures the action_head always
+            # receives gradient signal even when action_targets is not provided.
+            # Without this, the action_head is dead code (0 gradient updates during
+            # normal LM training). The entropy term encourages diverse, non-degenerate
+            # action predictions instead of collapsing to a single action.
+            # Weight is small (0.01) so it doesn't dominate the LM loss.
             if action_targets is not None:
                 loss = loss + action_loss_weight * F.mse_loss(actions, action_targets)
+            else:
+                # Entropy regularization: -H(p) = sum(p * log(p))
+                # Minimizing this maximizes entropy → encourages diverse predictions
+                action_probs = F.softmax(actions, dim=-1)
+                action_log_probs = F.log_softmax(actions, dim=-1)
+                entropy_reg = -(action_probs * action_log_probs).sum(dim=-1).mean()
+                loss = loss - 0.01 * entropy_reg  # negative because we want to MAXIMIZE entropy
         elif action_targets is not None:
             loss = F.mse_loss(actions, action_targets)
 

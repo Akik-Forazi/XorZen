@@ -185,6 +185,46 @@
     "test_status": "OK",
     "last_tested": "2026-03-03T14:32:46.451008+00:00",
     "roundtrip_ok": true,
-    "notes": "Special tokens IDs 0-10. Compatible with zarx_nano_1m (vocab_size=6765) — tokens beyond 6765 will not be used by that model. vocab_size confirmed 10000 from loaded file."
+    "notes": "Special tokens IDs 0-10. Compatible with zarx_nano_1m (vocab_size=6765) \u2014 tokens beyond 6765 will not be used by that model. vocab_size confirmed 10000 from loaded file."
+  },
+  "xorzen_python_10k": {
+    "name": "xorzen_python_10k",
+    "vocab_size": 10000,
+    "version": "1.0.0",
+    "description": "Code-friendly BPE tokenizer (vocab=10000) trained on a mix of English (TinyStories), Python (smollm-corpus python-edu), and Math (MetaMathQA). Special tokens include markdown code fence and explicit space/tab for Python indentation. Total training text: 48.7 MB.",
+    "algorithm": "BPE",
+    "special_tokens": {
+      "<pad>": 0,
+      "<unk>": 1,
+      "<mask>": 2,
+      "<s>": 3,
+      "</s>": 4,
+      "assistant": 5,
+      "<|im_start|>": 6,
+      "<|im_end|>": 7,
+      "```": 8
+    },
+    "training_files_summary": {
+      "sources": {
+        "english": {
+          "chars": 10000227,
+          "file": "english.txt"
+        },
+        "python": {
+          "chars": 11095998,
+          "file": "python.txt"
+        },
+        "math": {
+          "chars": 30000141,
+          "file": "math.txt"
+        }
+      },
+      "total_chars": 51096366,
+      "approx_tokens": 12774091
+    },
+    "test_status": "OK",
+    "last_tested": "2026-10-02T07:24:39+00:00",
+    "roundtrip_ok": true,
+    "notes": "Trained by scripts/tokenizer_model_trainer.py. Byte-level BPE, code-friendly special tokens (markdown fence, explicit space/tab). Appropriate for English+Python+Math curricula."
   }
 }

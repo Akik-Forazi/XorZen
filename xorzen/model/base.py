@@ -5,12 +5,20 @@ Version: 1.0
 
 import torch
 import torch.nn as nn
-from typing import Optional, Dict, Any, List
-from dataclasses import dataclass
+import dataclasses
+from typing import Optional, Dict, Any, List, Iterator
+from dataclasses import dataclass, fields as _dc_fields
 
-@dataclass
+@dataclass(init=False)
 class ModelOutput:
-    """Complete model output with all intermediate states."""
+    """Complete model output with all intermediate states.
+    
+    Compatible with ``torch.nn.DataParallel.gather()`` — supports both
+    normal construction ``ModelOutput(logits=..., loss=...)`` and the
+    ``ModelOutput(map_object)`` call pattern used by PyTorch's
+    ``gather_map`` fallthrough branch when reconstructing gathered
+    outputs from multiple GPU replicas.
+    """
     # Primary outputs
     logits: torch.Tensor  # [batch, seq, vocab] - next token predictions
     loss: Optional[torch.Tensor] = None  # scalar - training loss
@@ -31,6 +39,40 @@ class ModelOutput:
     active_params: Optional[int] = None  # number of active parameters
     compute_cost: Optional[float] = None  # FLOPs estimate
     
+    def __init__(self, *args, **kwargs):
+        """Initialize ModelOutput.
+        
+        Supports three call patterns:
+        1. ``ModelOutput(logits=t, loss=l, ...)`` — keyword args (preferred).
+        2. ``ModelOutput(logits_tensor, loss=...)`` — positional + keyword args.
+        3. ``ModelOutput(iterable_of_field_values)`` — single iterable positional
+           arg with field values in declaration order. This pattern is used
+           by ``torch.nn.DataParallel.gather()`` when reconstructing gathered
+           outputs from multiple GPU replicas via
+           ``type(out)(map(gather_map, zip(*outputs)))``.
+        """
+        field_names = [f.name for f in _dc_fields(self)]
+        
+        # Pattern 3: single iterable positional arg (PyTorch's gather_map call)
+        if (len(args) == 1 and not kwargs
+                and not isinstance(args[0], torch.Tensor)
+                and not isinstance(args[0], (str, bytes))
+                and hasattr(args[0], '__iter__')):
+            values = list(args[0])
+            if len(values) == len(field_names):
+                for name, value in zip(field_names, values):
+                    setattr(self, name, value)
+                return
+            # Fall through to default handling if length doesn't match
+        
+        # Pattern 1 + 2: positional args followed by keyword args
+        for name, value in zip(field_names, args):
+            setattr(self, name, value)
+        for name, value in kwargs.items():
+            if name not in field_names:
+                raise TypeError(f"__init__() got an unexpected keyword argument '{name}'")
+            setattr(self, name, value)
+    
     def total_loss(self) -> Optional[torch.Tensor]:
         """Compute total weighted loss."""
         if self.loss is None:
@@ -45,6 +87,37 @@ class ModelOutput:
             total = total + self.cot_consistency_loss
         
         return total
+    
+    def __iter__(self) -> Iterator:
+        """Iterate over field values in declaration order, with non-tensor
+        fields replaced by None.
+        
+        This makes ModelOutput compatible with ``torch.nn.DataParallel.gather()``.
+        Without ``__iter__``, PyTorch's ``gather_map`` falls through to
+        ``type(out)(map(gather_map, zip(*outputs)))`` which crashes with
+        ``TypeError: 'ModelOutput' object is not iterable``.
+        
+        Non-tensor fields (``active_params``, ``compute_cost``, ``routing_info``,
+        ``expert_stats``, ``layer_outputs``) are yielded as ``None`` because
+        PyTorch's ``gather_map`` cannot gather plain ints/floats/dicts/lists
+        (it tries to ``zip(*outputs)`` on them, which fails for non-iterable
+        types). The gathered ModelOutput will have ``None`` for these fields.
+        This is acceptable because they are diagnostic metadata with no impact
+        on loss or gradients.
+        
+        Tensor fields (``logits``, ``loss``, ``cot_vector``, ``routing_loss``,
+        ``load_balance_loss``, ``cot_consistency_loss``, ``lm_loss``) are
+        yielded as-is. PyTorch's ``Gather.apply`` concatenates them along
+        dim=0. For batched tensors (``logits``, ``cot_vector``) this is correct.
+        For scalar tensors (``loss``, aux losses) the result is a 1-D tensor
+        with one element per replica — call ``.mean()`` to recover a scalar.
+        """
+        for f in _dc_fields(self):
+            v = getattr(self, f.name)
+            if isinstance(v, torch.Tensor):
+                yield v
+            else:
+                yield None
 
 @dataclass
 class GenerationConfig:
@@ -112,7 +185,7 @@ class BaseModel(nn.Module):
             buffer_size += buffer.numel() * buffer.element_size()
         
         total_size = param_size + buffer_size
-        
+
         return {
             'param_count': param_count,
             'param_size_mb': param_size / (1024 ** 2),
@@ -121,4 +194,83 @@ class BaseModel(nn.Module):
             'total_size_mb': total_size / (1024 ** 2),
             'total_size_gb': total_size / (1024 ** 3)
         }
+
+
+class ModelOutputDataParallel(nn.DataParallel):
+    """``nn.DataParallel`` variant that correctly gathers ``ModelOutput``.
+
+    Use this instead of ``nn.DataParallel`` when wrapping an xorzen model for
+    multi-GPU training. It overrides ``gather()`` so that:
+
+    - **Batched tensor fields** (``logits``, ``cot_vector``) are concatenated
+      along dim=0 (default DataParallel behavior).
+    - **Scalar tensor fields** (``loss``, ``routing_loss``,
+      ``load_balance_loss``, ``cot_consistency_loss``, ``lm_loss``) are
+      **averaged** across replicas, so the gathered ``outputs.loss`` stays a
+      0-D scalar tensor and ``.item()`` works without crashing.
+    - **Non-tensor fields** (``active_params``, ``compute_cost``,
+      ``routing_info``, ``expert_stats``, ``layer_outputs``) keep the first
+      replica's value.
+
+    Why this is needed:
+        PyTorch's stock ``nn.DataParallel.gather()`` calls ``Gather.apply``
+        on tensor fields, which **concatenates** them along dim=0. For
+        scalar tensors (0-D), this produces a 1-D tensor with one element
+        per replica (PyTorch prints a warning: "Was asked to gather along
+        dimension 0, but all input tensors were scalars; will instead
+        unsqueeze and return a vector"). The user then calls
+        ``outputs.loss.item()`` and gets::
+
+            RuntimeError: a Tensor with 2 elements cannot be converted to Scalar
+
+        Averaging the scalar losses across replicas is the standard fix —
+        it preserves the loss magnitude and is mathematically equivalent to
+        computing the mean loss over the full batch.
+
+    Example:
+        >>> from xorzen.model.base import ModelOutputDataParallel
+        >>> model = zero_50M()
+        >>> model = ModelOutputDataParallel(model, device_ids=[0, 1])
+        >>> outputs = model(input_ids=ids, labels=lbl, return_dict=True)
+        >>> loss = outputs.loss.item()  # works — scalar
+        >>> loss.backward()             # works — autograd handles the mean
+    """
+
+    def gather(self, outputs, output_device):
+        """Gather per-replica ModelOutput instances into one.
+
+        Args:
+            outputs: List of ModelOutput instances, one per replica.
+            output_device: Target device for the gathered tensors.
+
+        Returns:
+            A single ModelOutput with tensor fields gathered (batched tensors
+            concatenated, scalar tensors averaged) and non-tensor fields taken
+            from the first replica.
+        """
+        if not outputs:
+            return outputs
+        first = outputs[0]
+        if not isinstance(first, ModelOutput):
+            # Fall back to default gather for tensors / tuples / dicts
+            return super().gather(outputs, output_device)
+
+        gathered = {}
+        for f in _dc_fields(first):
+            vals = [getattr(o, f.name) for o in outputs]
+            if all(v is None for v in vals):
+                gathered[f.name] = None
+            elif all(isinstance(v, torch.Tensor) for v in vals):
+                vals_dev = [v.to(output_device) for v in vals]
+                if vals_dev[0].dim() == 0:
+                    # Scalar tensor (loss, routing_loss, etc.) — average across replicas
+                    gathered[f.name] = torch.stack(vals_dev).mean()
+                else:
+                    # Batched tensor (logits, cot_vector) — concat along batch dim
+                    gathered[f.name] = torch.cat(vals_dev, dim=0)
+            else:
+                # Non-tensor field — keep first replica's value
+                gathered[f.name] = vals[0]
+        return ModelOutput(**gathered)
+
 
