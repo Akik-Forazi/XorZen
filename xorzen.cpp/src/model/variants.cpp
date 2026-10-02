@@ -1,7 +1,7 @@
 // ============================================================
 //  xorzen.cpp — src/model/variants.cpp
-//  ConfigFactory: precision-tuned model size configs
-//  Ported from xorzen/models/zero/variants.py + config.py
+//  ConfigFactory: EXACT Python parity for model size configs
+//  Ported from xorzen/config.py — every value must match Python
 //  FRAZIYM TECH & AI / Akik Faraji
 // ============================================================
 #include "xorzen/variants.h"
@@ -9,11 +9,9 @@
 
 namespace xorzen {
 
-// All configs follow ZARX architectural equations:
-//   d_ff = hidden_size * 4  (approx via expert_hidden_multiplier)
-//   cot_dim = 256, cot_components = 6  (always)
-//   n_kv_heads = n_heads / 3  (GQA)
-//   width_choices = {H/2, H*3/4, H}
+// All configs are EXACT copies of xorzen/config.py ConfigFactory.get_config().
+// DO NOT modify these values without updating the Python source first.
+// Python is the source of truth — if C++ and Python disagree, C++ is wrong.
 
 ModelConfig ConfigFactory::get_config(ModelSize size) {
     ModelConfig c;
@@ -21,316 +19,291 @@ ModelConfig ConfigFactory::get_config(ModelSize size) {
     switch (size) {
 
     // ── TINY 23K ──────────────────────────────────────────
+    // Python: _h = 8, vocab=8, ctx=32, layers=1, heads=2, experts=1, top_k=1
     case ModelSize::TINY_23K:
-        c.model_name           = "xorzen-tiny-23k";
-        c.vocab_size           = 512;
-        c.hidden_size          = 32;
-        c.num_layers           = 2;
-        c.num_attention_heads  = 4;
-        c.n_kv_heads           = 1;
-        c.num_experts          = 4;
+        c.model_name           = "xorzen_tiny_23k";
+        c.vocab_size           = 8;
+        c.hidden_size          = 8;
+        c.num_layers           = 1;
+        c.num_attention_heads  = 2;
+        c.n_kv_heads           = 2;  // no GQA in Python tiny
+        c.num_experts          = 1;
         c.top_k_experts        = 1;
-        c.max_expert_cache     = 4;
-        c.expert_hidden_multiplier = 2.0f;
-        c.cot_dim              = 16;
+        c.max_expert_cache     = 1;
+        c.expert_hidden_multiplier = 4.0f;
+        c.cot_dim              = 2;
         c.cot_components       = 6;
         c.ssm_d_state          = 4;
-        c.ssm_d_conv           = 2;
-        c.context_length       = 128;
-        c.router_hidden_dim    = 16;
-        c.width_choices        = {16, 24, 32};
+        c.ssm_d_conv           = 4;
+        c.context_length       = 32;
+        c.max_depth            = 1;
+        c.min_depth            = 1;
+        c.router_hidden_dim    = 1;
+        c.router_num_layers   = 1;
+        c.merger_num_layers   = 1;
+        c.width_choices        = {8};  // Python: (_h,) = (8,)
+        c.shard_experts        = false;
         c.cot_loss_weight      = 0.001f;
         c.load_balancing_weight = 0.0001f;
+        c.pad_token_id         = 0;
+        c.gradient_checkpointing = false;
         break;
 
     // ── NANO 1M ───────────────────────────────────────────
+    // Python: _h = 64, vocab=6765, ctx=128, layers=3, heads=4, experts=2, top_k=1
     case ModelSize::NANO_1M:
-        c.model_name           = "xorzen-nano-1m";
-        c.vocab_size           = 8000;
-        c.hidden_size          = 128;
-        c.num_layers           = 4;
+        c.model_name           = "xorzen_nano_1m";
+        c.vocab_size           = 6765;
+        c.hidden_size          = 64;
+        c.num_layers           = 3;
         c.num_attention_heads  = 4;
-        c.n_kv_heads           = 2;
-        c.num_experts          = 16;
-        c.top_k_experts        = 2;
-        c.max_expert_cache     = 8;
+        c.n_kv_heads           = 4;  // no GQA
+        c.num_experts          = 2;
+        c.top_k_experts        = 1;
+        c.max_expert_cache     = 2;
         c.expert_hidden_multiplier = 4.0f;
-        c.cot_dim              = 64;
+        c.cot_dim              = 16;  // Python: _h // 4 = 64 // 4 = 16
         c.cot_components       = 6;
         c.ssm_d_state          = 8;
-        c.ssm_d_conv           = 3;
-        c.context_length       = 512;
-        c.router_hidden_dim    = 64;
-        c.width_choices        = {64, 96, 128};
+        c.ssm_d_conv           = 4;
+        c.context_length       = 128;
+        c.max_depth            = 3;
+        c.min_depth            = 1;
+        c.router_hidden_dim    = 16;  // Python: _h // 4
+        c.width_choices        = {64};  // Python: (_h,) = (64,)
         c.cot_loss_weight      = 0.01f;
         c.load_balancing_weight = 0.001f;
+        c.pad_token_id         = 0;
+        c.gradient_checkpointing = false;  // Python: False (no memory pressure)
         break;
 
     // ── NANO 10M ──────────────────────────────────────────
+    // Python: _h = 192, vocab=10000, ctx=512, layers=6, heads=8, experts=8, top_k=2
     case ModelSize::NANO_10M:
-        c.model_name           = "xorzen-nano-10m";
-        c.vocab_size           = 16000;
-        c.hidden_size          = 256;
+        c.model_name           = "xorzen_nano_10m";
+        c.vocab_size           = 10000;
+        c.hidden_size          = 192;
         c.num_layers           = 6;
         c.num_attention_heads  = 8;
-        c.n_kv_heads           = 2;
-        c.num_experts          = 32;
+        c.n_kv_heads           = 8;
+        c.num_experts          = 8;
         c.top_k_experts        = 2;
-        c.max_expert_cache     = 12;
+        c.max_expert_cache     = 8;
         c.expert_hidden_multiplier = 4.0f;
-        c.cot_dim              = 128;
+        c.cot_dim              = 48;  // Python: _h // 4 = 192 // 4 = 48
         c.cot_components       = 6;
         c.ssm_d_state          = 12;
-        c.ssm_d_conv           = 3;
-        c.context_length       = 1024;
-        c.router_hidden_dim    = 128;
-        c.width_choices        = {128, 192, 256};
+        c.ssm_d_conv           = 4;
+        c.context_length       = 512;
+        c.max_depth            = 6;
+        c.min_depth            = 2;
+        c.router_hidden_dim    = 48;  // Python: _h // 4
+        c.width_choices        = {96, 192};  // Python: (_h // 2, _h) = (96, 192)
         c.cot_loss_weight      = 0.01f;
         c.load_balancing_weight = 0.001f;
+        c.pad_token_id         = 0;
+        c.gradient_checkpointing = true;  // Python default
         break;
 
     // ── MICRO 50M ─────────────────────────────────────────
+    // Python: _h = 256, vocab=10000, ctx=1024, layers=10, heads=8, experts=43, top_k=2
     case ModelSize::MICRO_50M:
-        c.model_name           = "xorzen-micro-50m";
-        c.vocab_size           = 32000;
-        c.hidden_size          = 512;
-        c.num_layers           = 8;
+        c.model_name           = "xorzen_micro_50m";
+        c.vocab_size           = 10000;
+        c.hidden_size          = 256;
+        c.num_layers           = 10;
         c.num_attention_heads  = 8;
-        c.n_kv_heads           = 4;
-        c.num_experts          = 64;
+        c.n_kv_heads           = 8;
+        c.num_experts          = 43;
         c.top_k_experts        = 2;
-        c.max_expert_cache     = 16;
+        c.max_expert_cache     = 24;  // Python: LRU capacity = min(24, num_experts)
         c.expert_hidden_multiplier = 4.0f;
-        c.cot_dim              = 192;
+        c.cot_dim              = 64;  // Python: _h // 4 = 256 // 4 = 64
         c.cot_components       = 6;
         c.ssm_d_state          = 16;
         c.ssm_d_conv           = 4;
-        c.context_length       = 2048;
-        c.router_hidden_dim    = 128;
-        c.width_choices        = {256, 384, 512};
-        c.cot_loss_weight      = 0.05f;
-        c.load_balancing_weight = 0.005f;
+        c.context_length       = 1024;
+        c.max_depth            = 10;
+        c.min_depth            = 3;
+        c.router_hidden_dim    = 64;  // Python: _h // 4
+        c.width_choices        = {128, 256};  // Python: (_h // 2, _h) = (128, 256)
+        c.cot_loss_weight      = 0.01f;
+        c.load_balancing_weight = 0.001f;
+        c.pad_token_id         = 0;
+        c.gradient_checkpointing = true;  // Python default
         break;
 
-    // ── MINI 277M (Flagship) ──────────────────────────────
+    // ── MINI 277M ─────────────────────────────────────────
+    // Python: _h = 512, vocab=33898, ctx=1024, layers=13, heads=16, experts=64, top_k=2
     case ModelSize::MINI_277M:
-        c.model_name           = "xorzen-mini-277m";
-        c.vocab_size           = 32000;
-        c.hidden_size          = 768;
-        c.num_layers           = 16;
-        c.num_attention_heads  = 12;
-        c.n_kv_heads           = 4;
-        c.num_experts          = 192;
+        c.model_name           = "xorzen_zero_277m";
+        c.vocab_size           = 33898;
+        c.hidden_size          = 512;
+        c.num_layers           = 13;
+        c.num_attention_heads  = 16;
+        c.n_kv_heads           = 16;
+        c.num_experts          = 64;
         c.top_k_experts        = 2;
         c.max_expert_cache     = 24;
         c.expert_hidden_multiplier = 4.0f;
-        c.cot_dim              = 256;
+        c.cot_dim              = 64;  // Python: _h // 8 = 512 // 8 = 64
         c.cot_components       = 6;
         c.ssm_d_state          = 16;
         c.ssm_d_conv           = 4;
-        c.context_length       = 4096;
-        c.router_hidden_dim    = 256;
-        c.width_choices        = {384, 576, 768};
-        c.cot_loss_weight      = 0.1f;
-        c.load_balancing_weight = 0.01f;
-        c.ssm_kernel_size      = 3;
+        c.context_length       = 1024;
+        c.max_depth            = 13;
+        c.min_depth            = 4;
+        c.router_hidden_dim    = 64;  // Python: _h // 8
+        c.width_choices        = {256, 512};  // Python: (_h // 2, _h)
+        c.cot_loss_weight      = 0.01f;
+        c.load_balancing_weight = 0.001f;
+        c.pad_token_id         = 0;
+        c.gradient_checkpointing = true;  // Python default
         break;
 
     // ── SMALL 500M ────────────────────────────────────────
+    // Python: _h = 640, vocab=64563, ctx=8192, layers=16, heads=16, experts=69, top_k=2
     case ModelSize::SMALL_500M:
-        c.model_name           = "xorzen-small-500m";
-        c.vocab_size           = 32000;
-        c.hidden_size          = 1024;
-        c.num_layers           = 20;
+        c.model_name           = "xorzen_small_500m";
+        c.vocab_size           = 64563;
+        c.hidden_size          = 640;
+        c.num_layers           = 16;
         c.num_attention_heads  = 16;
-        c.n_kv_heads           = 4;
-        c.num_experts          = 256;
+        c.n_kv_heads           = 16;
+        c.num_experts          = 69;
         c.top_k_experts        = 2;
-        c.max_expert_cache     = 32;
+        c.max_expert_cache     = 24;
         c.expert_hidden_multiplier = 4.0f;
-        c.cot_dim              = 256;
+        c.cot_dim              = 160;  // Python: _h // 4 = 640 // 4 = 160
         c.cot_components       = 6;
         c.ssm_d_state          = 16;
         c.ssm_d_conv           = 4;
         c.context_length       = 8192;
-        c.router_hidden_dim    = 256;
-        c.width_choices        = {512, 768, 1024};
-        c.cot_loss_weight      = 0.1f;
-        c.load_balancing_weight = 0.01f;
+        c.max_depth            = 16;
+        c.min_depth            = 4;
+        c.router_hidden_dim    = 160;  // Python: _h // 4
+        c.width_choices        = {320, 640};  // Python: (_h // 2, _h)
+        c.cot_loss_weight      = 0.01f;
+        c.load_balancing_weight = 0.001f;
+        c.pad_token_id         = 0;
+        c.gradient_checkpointing = true;
         break;
 
     // ── MEDIUM 1B ─────────────────────────────────────────
+    // Python: _h = 896, vocab=68003, ctx=8192, layers=24, heads=16, experts=64, top_k=2
     case ModelSize::MEDIUM_1B:
-        c.model_name           = "xorzen-medium-1b";
-        c.vocab_size           = 32000;
-        c.hidden_size          = 1536;
+        c.model_name           = "xorzen_medium_1b";
+        c.vocab_size           = 68003;
+        c.hidden_size          = 896;
         c.num_layers           = 24;
         c.num_attention_heads  = 16;
-        c.n_kv_heads           = 8;
-        c.num_experts          = 384;
+        c.n_kv_heads           = 16;
+        c.num_experts          = 64;
         c.top_k_experts        = 2;
-        c.max_expert_cache     = 48;
+        c.max_expert_cache     = 24;
         c.expert_hidden_multiplier = 4.0f;
-        c.cot_dim              = 256;
+        c.cot_dim              = 224;  // Python: _h // 4 = 896 // 4 = 224
         c.cot_components       = 6;
         c.ssm_d_state          = 16;
         c.ssm_d_conv           = 4;
         c.context_length       = 8192;
-        c.router_hidden_dim    = 256;
-        c.width_choices        = {768, 1152, 1536};
-        c.cot_loss_weight      = 0.1f;
-        c.load_balancing_weight = 0.01f;
+        c.max_depth            = 24;
+        c.min_depth            = 4;
+        c.router_hidden_dim    = 224;  // Python: _h // 4
+        c.width_choices        = {448, 896};  // Python: (_h // 2, _h)
+        c.cot_loss_weight      = 0.01f;
+        c.load_balancing_weight = 0.001f;
+        c.pad_token_id         = 0;
+        c.gradient_checkpointing = true;
         break;
 
-    // ── XL 3B ─────────────────────────────────────────────
-    case ModelSize::XL_3B:
-        c.model_name           = "xorzen-xl-3b";
-        c.vocab_size           = 32000;
-        c.hidden_size          = 2560;
+    // ── LARGE 3B ──────────────────────────────────────────
+    // Python: _h = 1280, vocab=94689, ctx=8192, layers=32, heads=32, experts=104, top_k=2
+    case ModelSize::LARGE_3B:
+        c.model_name           = "xorzen_large_3b";
+        c.vocab_size           = 94689;
+        c.hidden_size          = 1280;
         c.num_layers           = 32;
         c.num_attention_heads  = 32;
-        c.n_kv_heads           = 8;
-        c.num_experts          = 512;
+        c.n_kv_heads           = 32;
+        c.num_experts          = 104;
         c.top_k_experts        = 2;
-        c.max_expert_cache     = 64;
+        c.max_expert_cache     = 24;
         c.expert_hidden_multiplier = 4.0f;
-        c.cot_dim              = 256;
+        c.cot_dim              = 320;  // Python: _h // 4 = 1280 // 4 = 320
         c.cot_components       = 6;
         c.ssm_d_state          = 16;
         c.ssm_d_conv           = 4;
-        c.context_length       = 16384;
-        c.router_hidden_dim    = 512;
-        c.width_choices        = {1280, 1920, 2560};
-        c.cot_loss_weight      = 0.1f;
-        c.load_balancing_weight = 0.01f;
+        c.context_length       = 8192;
+        c.max_depth            = 32;
+        c.min_depth            = 5;
+        c.router_hidden_dim    = 320;  // Python: _h // 4
+        c.width_choices        = {640, 1280};  // Python: (_h // 2, _h)
+        c.cot_loss_weight      = 0.01f;
+        c.load_balancing_weight = 0.001f;
+        c.pad_token_id         = 0;
+        c.gradient_checkpointing = true;
         break;
 
     // ── XL 7B ─────────────────────────────────────────────
+    // Python: _h = 1792, vocab=98425, ctx=8192, layers=48, heads=32, experts=116, top_k=2
     case ModelSize::XL_7B:
-        c.model_name           = "xorzen-xl-7b";
-        c.vocab_size           = 32000;
-        c.hidden_size          = 4096;
-        c.num_layers           = 32;
+        c.model_name           = "xorzen_xl_7b";
+        c.vocab_size           = 98425;
+        c.hidden_size          = 1792;
+        c.num_layers           = 48;
         c.num_attention_heads  = 32;
-        c.n_kv_heads           = 8;
-        c.num_experts          = 1024;
+        c.n_kv_heads           = 32;
+        c.num_experts          = 116;
         c.top_k_experts        = 2;
-        c.max_expert_cache     = 128;
+        c.max_expert_cache     = 24;
         c.expert_hidden_multiplier = 4.0f;
-        c.cot_dim              = 256;
+        c.cot_dim              = 448;  // Python: _h // 4 = 1792 // 4 = 448
         c.cot_components       = 6;
         c.ssm_d_state          = 16;
         c.ssm_d_conv           = 4;
-        c.context_length       = 32768;
-        c.router_hidden_dim    = 512;
-        c.width_choices        = {2048, 3072, 4096};
-        c.cot_loss_weight      = 0.1f;
-        c.load_balancing_weight = 0.01f;
-        c.use_rope             = true;
-        break;
-
-    // ── IGRIS NANO (~5M) ──────────────────────────────────
-    case ModelSize::IGRIS_NANO:
-        c.model_name           = "xorzen-igris-nano";
-        c.vocab_size           = 10000;
-        c.hidden_size          = 256;
-        c.num_layers           = 6;
-        c.num_attention_heads  = 8;
-        c.n_kv_heads           = 2;
-        c.num_experts          = 32;
-        c.top_k_experts        = 2;
-        c.max_expert_cache     = 12;
-        c.expert_hidden_multiplier = 4.0f;
-        c.cot_dim              = 128;
-        c.cot_components       = 6;
-        c.ssm_d_state          = 12;
-        c.ssm_d_conv           = 3;
-        c.context_length       = 2048;
-        c.router_hidden_dim    = 128;
-        c.width_choices        = {128, 192, 256};
-        
-        // IGRIS Agentic Bits
-        c.use_recursion        = true;
-        c.max_recursion_depth  = 3;
-        c.use_self_critique    = true;
-        c.num_action_slots     = 16;
-        break;
-
-    // ── IGRIS MICRO (~50M) ────────────────────────────────
-    case ModelSize::IGRIS_MICRO:
-        c.model_name           = "xorzen-igris-micro";
-        c.vocab_size           = 10000;
-        c.hidden_size          = 512;
-        c.num_layers           = 12;
-        c.num_attention_heads  = 12;
-        c.n_kv_heads           = 4;
-        c.num_experts          = 64;
-        c.top_k_experts        = 2;
-        c.max_expert_cache     = 16;
-        c.expert_hidden_multiplier = 4.0f;
-        c.cot_dim              = 192;
-        c.cot_components       = 6;
-        c.ssm_d_state          = 16;
-        c.ssm_d_conv           = 4;
-        c.context_length       = 4096;
-        c.router_hidden_dim    = 256;
-        c.width_choices        = {256, 384, 512};
-        
-        // IGRIS Agentic Bits
-        c.use_recursion        = true;
-        c.max_recursion_depth  = 4;
-        c.use_self_critique    = true;
-        c.num_action_slots     = 32;
+        c.context_length       = 8192;
+        c.max_depth            = 48;
+        c.min_depth            = 6;
+        c.router_hidden_dim    = 448;  // Python: _h // 4
+        c.width_choices        = {896, 1792};  // Python: (_h // 2, _h)
+        c.cot_loss_weight      = 0.01f;
+        c.load_balancing_weight = 0.001f;
+        c.pad_token_id         = 0;
+        c.gradient_checkpointing = true;
         break;
 
     default:
-        throw std::invalid_argument("Unknown ModelSize");
+        throw std::runtime_error("Unknown ModelSize in ConfigFactory::get_config()");
     }
 
-    // Common defaults
-    c.num_cot_layers           = 6;
-    c.dropout                  = 0.1f;
-    c.layer_norm_eps           = 1e-5f;
-    c.tie_word_embeddings      = true;
-    c.gradient_checkpointing   = false;
-    c.use_disk_cache           = true;
-    c.expert_shard_dir         = "experts/" + c.model_name;
-    c.merger_type              = "gated";
-    c.merger_hidden_multiplier = 2.0f;
-    c.use_ssm                  = true;
-    c.use_rope                 = (size >= ModelSize::MINI_277M);
+    // Common defaults matching Python's ModelConfig dataclass defaults
+    c.tie_word_embeddings    = true;
+    c.causal                = true;
+    c.use_sliced_ffn        = true;
+    c.use_moe               = true;
+    c.test_mode             = false;
+    c.local_window_size     = std::min<int64_t>(128, c.context_length);
+    c.low_rank_dim          = c.hidden_size * 3 / 8;  // Python default: hidden * 3 / 8
+    c.ssm_state_dim         = 16;  // Python default
+    c.target_active_ratio   = 0.1f;  // Python default
+    c.unify_load_balance    = true;  // Python default — zeros load_balance_loss
 
-    // Sync all alias fields
-    c.normalize();
     return c;
 }
 
-std::string ConfigFactory::size_name(ModelSize size) {
-    switch (size) {
-    case ModelSize::TINY_23K:   return "TINY_23K";
-    case ModelSize::NANO_1M:    return "NANO_1M";
-    case ModelSize::NANO_10M:   return "NANO_10M";
-    case ModelSize::MICRO_50M:  return "MICRO_50M";
-    case ModelSize::MINI_277M:  return "MINI_277M";
-    case ModelSize::SMALL_500M: return "SMALL_500M";
-    case ModelSize::MEDIUM_1B:  return "MEDIUM_1B";
-    case ModelSize::XL_3B:      return "XL_3B";
-    case ModelSize::XL_7B:      return "XL_7B";
-    default: return "UNKNOWN";
-    }
-}
-
 int64_t ConfigFactory::param_target(ModelSize size) {
+    // These MUST match Python's PARAM_COUNT in variants.py exactly.
     switch (size) {
-    case ModelSize::TINY_23K:   return 37'824;
-    case ModelSize::NANO_1M:    return 1'077'503;
-    case ModelSize::NANO_10M:   return 10'970'548;
-    case ModelSize::MICRO_50M:  return 50'399'371;
-    case ModelSize::MINI_277M:  return 277'000'335;
-    case ModelSize::SMALL_500M: return 500'000'083;
-    case ModelSize::MEDIUM_1B:  return 1'000'000'886;
-    case ModelSize::XL_3B:      return 3'000'000'822;
-    case ModelSize::XL_7B:      return 7'000'000'466;
+    case ModelSize::TINY_23K:  return 37'824;
+    case ModelSize::NANO_1M:   return 1'077'503;
+    case ModelSize::NANO_10M:  return 10'970'548;
+    case ModelSize::MICRO_50M: return 50'399'371;
+    case ModelSize::MINI_277M: return 277'000'335;
+    case ModelSize::SMALL_500M:return 500'000'083;
+    case ModelSize::MEDIUM_1B: return 1'000'000'886;
+    case ModelSize::LARGE_3B:  return 3'000'000'000;  // approximate
+    case ModelSize::XL_7B:     return 7'000'000'466;
     default: return 0;
     }
 }

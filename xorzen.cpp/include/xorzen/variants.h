@@ -32,10 +32,12 @@ enum class ModelSize {
     MINI_277M,
     SMALL_500M,
     MEDIUM_1B,
-    XL_3B,
+    LARGE_3B,   // Python: LARGE_3B (was XL_3B — renamed for parity)
     XL_7B,
-    IGRIS_NANO,
-    IGRIS_MICRO
+    XXL_13B,    // Python: XXL_13B
+    XXXL_70B,   // Python: XXXL_70B
+    GREED_TINY, // Python: GREED_TINY
+    GREED_SMALL // Python: GREED_SMALL
 };
 
 // ============================================================
@@ -58,6 +60,7 @@ inline ModelConfig micro_50m_config()  { return ConfigFactory::get_config(ModelS
 inline ModelConfig mini_277m_config()  { return ConfigFactory::get_config(ModelSize::MINI_277M);  }
 inline ModelConfig small_500m_config() { return ConfigFactory::get_config(ModelSize::SMALL_500M); }
 inline ModelConfig medium_1b_config()  { return ConfigFactory::get_config(ModelSize::MEDIUM_1B);  }
+inline ModelConfig large_3b_config()   { return ConfigFactory::get_config(ModelSize::LARGE_3B);   }
 inline ModelConfig xl_7b_config()      { return ConfigFactory::get_config(ModelSize::XL_7B);      }
 
 } // namespace xorzen
