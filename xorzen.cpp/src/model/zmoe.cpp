@@ -328,22 +328,24 @@ MoEOutput ShardedExpertFabric::forward(const torch::Tensor& hidden_states,
         auto slot_idx = expert_indices.select(1, k);   // [N]
         auto slot_wt  = expert_weights.select(1, k);   // [N]
 
-        // Group by expert id
-        auto sorted = std::get<0>(slot_idx.sort());
-        std::vector<int64_t> unique_ids;
-        unique_ids.reserve(static_cast<size_t>(sorted.size(0)));
-        int64_t prev = std::numeric_limits<int64_t>::min();
-        for (int64_t i = 0; i < sorted.size(0); ++i) {
-            int64_t eid = sorted[i].item<int64_t>();
-            if (i == 0 || eid != prev) {
-                unique_ids.push_back(eid);
-                prev = eid;
-            }
-        }
-        for (int64_t ui = 0; ui < static_cast<int64_t>(unique_ids.size()); ++ui) {
-            int64_t eid = unique_ids[static_cast<size_t>(ui)];
+        // Group by expert id — use torch::unique() instead of a per-element
+        // .item<int64_t>() loop. The old code did:
+        //   for (int64_t i = 0; i < sorted.size(0); ++i) {
+        //       int64_t eid = sorted[i].item<int64_t>();  // CPU sync per element!
+        //   }
+        // which forced a CPU←GPU sync for EVERY token in the batch. With
+        // batch=16 × seq=1024 = 16K tokens, that was 16K syncs per top-k
+        // slot per forward pass. torch::unique() does it in one GPU op.
+        auto unique_result = torch::unique(slot_idx);
+        auto unique_accessor = unique_result.accessor<int64_t, 1>();
+
+        for (int64_t ui = 0; ui < unique_accessor.size(0); ++ui) {
+            int64_t eid = unique_accessor[ui];
             auto mask   = (slot_idx == eid);             // [N] bool
-            if (!mask.any().item<bool>()) continue;
+            // Old code: if (!mask.any().item<bool>()) continue;
+            // The .item<bool>() forces a CPU sync. Since we got eid from
+            // torch::unique(slot_idx), we KNOW at least one element matches
+            // — the check is always true. Skip it.
             auto tok_ids = torch::where(mask)[0];
             auto tok_wt  = slot_wt.index({mask}).unsqueeze(1); // [n, 1]
             auto tok_hid = hidden_states.index({mask});         // [n, H]
@@ -373,13 +375,27 @@ MoEOutput ShardedExpertFabric::forward(const torch::Tensor& hidden_states,
             }
 
             out.output.index_put_({mask}, out.output.index({mask}) + expert_out * tok_wt);
-            expert_stats_[eid].update(tok_wt.mean().item<double>(), was_cached, load_ms);
+
+            // Update statistics — skip during training to avoid .item<double>()
+            // CPU sync. The stats are diagnostic-only (not in the autograd graph).
+            // This mirrors the Python fix from commit d14adc1.
+            if (!is_training()) {
+                expert_stats_[eid].update(tok_wt.mean().item<double>(), was_cached, load_ms);
+            }
         }
     }
 
-    // Normalise by sum of weights
-    auto total_w = expert_weights.sum(1, true).clamp_min(1e-8f); // [N, 1]
-    out.output /= total_w;
+    // NOTE: do NOT normalize by sum of weights.
+    // The Python reference (zmoe.py) explicitly does NOT re-normalize:
+    //   # NOTE: do NOT re-normalize by sum(expert_weights).
+    //   # The MoE output is sum_k w_k * E_k(x), NOT a weighted average.
+    //   # The router already L1-normalizes the top-k weights to sum to 1.
+    // The old C++ code did:
+    //   auto total_w = expert_weights.sum(1, true).clamp_min(1e-8f);
+    //   out.output /= total_w;
+    // which is a PARITY BUG — it dampens the MoE signal when weights sum to
+    // < 1, destroying the weighted-sum semantics the router was trained with.
+    // Removed to match Python behavior.
 
     out.load_balance_loss = compute_load_balance_loss(expert_indices, expert_weights);
     out.routing_entropy   = compute_routing_entropy(expert_weights);

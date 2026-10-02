@@ -127,16 +127,9 @@ RoutingDecision AdaptiveRouterImpl::forward(const torch::Tensor& x,
     auto router_input = torch::cat({x, cot_features}, -1);
     auto flat = router_input.view({B * T, input_dim});
     auto features = feature_encoder->forward(flat).view({B, T, -1});
-    
-    // DEBUG
-    xorzen::print_tensor_stats(features, "Features_CPP");
 
     auto depth_logits = depth_router->forward(features);
     auto width_logits = width_router->forward(features);
-    
-    // DEBUG
-    xorzen::print_tensor_stats(depth_logits, "DepthLogits_CPP");
-    xorzen::print_tensor_stats(width_logits, "WidthLogits_CPP");
     auto path_logits = path_router->forward(features);
     auto expert_logits = expert_router->forward(features);
     auto character_probs = character_router->forward(features);
