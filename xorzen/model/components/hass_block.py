@@ -1115,68 +1115,53 @@ class HASSBlock(nn.Module):
         """
         Forward pass with depth masking.
         Only processes tokens where depth_mask indicates this layer should be active.
-        
+
         Args:
             x: Input tensor [batch, seq_len, hidden]
             depth_mask: Depth mask [batch, seq_len] indicating active tokens
             routing_decision: Routing decision
             attention_mask: Attention mask
-            
+
         Returns:
             Output tensor [batch, seq_len, hidden]
         """
-        batch_size, seq_len, _ = x.shape
-        
         # Check if any tokens are active for this layer
         if depth_mask.sum() == 0:
             # No active tokens, return input unchanged (100% compute saved)
             return x
-        
+
         # If all tokens across all batch items are active, process as full batch directly
         if depth_mask.all():
             return self.forward(x, routing_decision=routing_decision, attention_mask=attention_mask)
 
-        # Process per batch element to strictly prevent cross-sequence contamination
-        # (causal attention and SSM context must never leak across batch boundaries)
-        outputs = []
-        for b in range(batch_size):
-            mask_b = depth_mask[b]  # [seq_len]
-            x_b = x[b:b+1]          # [1, seq_len, hidden]
-            
-            if mask_b.sum() == 0:
-                outputs.append(x_b)
-                continue
-            
-            # Slice routing decision and attention mask for this batch element
-            b_rd = None
-            if routing_decision is not None:
-                b_rd = RoutingDecision(
-                    depth_logits=routing_decision.depth_logits[b:b+1],
-                    depth_probs=routing_decision.depth_probs[b:b+1],
-                    depth_mask=routing_decision.depth_mask[b:b+1],
-                    width_logits=routing_decision.width_logits[b:b+1],
-                    width_probs=routing_decision.width_probs[b:b+1],
-                    width_idx=routing_decision.width_idx[b:b+1],
-                    width_multiplier=routing_decision.width_multiplier[b:b+1],
-                    path_logits=routing_decision.path_logits[b:b+1],
-                    path_probs=routing_decision.path_probs[b:b+1],
-                    expert_logits=routing_decision.expert_logits[b:b+1],
-                    expert_probs=routing_decision.expert_probs[b:b+1],
-                    expert_indices=routing_decision.expert_indices[b:b+1],
-                    expert_weights=routing_decision.expert_weights[b:b+1],
-                    complexity=routing_decision.complexity[b:b+1],
-                    uncertainty=routing_decision.uncertainty[b:b+1],
-                )
-            
-            b_mask = attention_mask[b:b+1] if attention_mask is not None else None
-            processed_b = self.forward(x_b, routing_decision=b_rd, attention_mask=b_mask)
-            
-            # Apply residual update only to tokens active in this layer
-            delta_b = processed_b - x_b
-            out_b = x_b + mask_b.unsqueeze(0).unsqueeze(-1).float() * delta_b
-            outputs.append(out_b)
+        # PARTIAL ACTIVATION PATH (vectorized, no Python loop over batch).
+        #
+        # Previous implementation looped over each batch element with
+        # `for b in range(batch_size)` and built a per-element RoutingDecision
+        # slice. With batch_size=16 that was 16 Python iterations per layer
+        # per forward, each creating 13+ tensor slices — GPU utilization
+        # dropped to ~7% because the GPU spent most of its time waiting on
+        # Python overhead.
+        #
+        # The "cross-sequence contamination" comment in the old code was
+        # misleading: causal attention masks already prevent cross-sequence
+        # attention, and the SSM scan processes each sequence independently
+        # along the seq dimension. The batch dim is already isolated by the
+        # attention mask shape [batch, 1, seq, seq] broadcast. So we can
+        # safely run the full batch through self.forward() in one call and
+        # apply the per-token depth mask AFTER.
+        #
+        # The math: out = x + depth_mask * (forward(x) - x)
+        # This is equivalent to the per-batch loop but runs the HASS block
+        # ONCE on the full batch instead of batch_size times.
+        processed = self.forward(x, routing_decision=routing_decision, attention_mask=attention_mask)
 
-        return torch.cat(outputs, dim=0)
+        # Apply per-token residual gating: only update active tokens, pass
+        # inactive tokens through unchanged. depth_mask is [batch, seq];
+        # we expand to [batch, seq, 1] for broadcasting with [batch, seq, hidden].
+        mask = depth_mask.unsqueeze(-1).to(x.dtype)
+        out = x + mask * (processed - x)
+        return out
     
     def get_compute_stats(
         self,
