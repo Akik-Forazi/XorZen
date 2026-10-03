@@ -1,0 +1,36 @@
+component 16_hass_block_granular
+config hidden_size 8
+config num_attention_heads 2
+config ssm_state_dim 16
+config ssm_kernel_size 3
+config local_window_size 128
+config low_rank_dim 96
+config max_depth 1
+config num_widths 1
+config num_paths 3
+config num_experts 1
+config top_k 1
+config temperature 1.0
+config cost_aware_routing 1
+config compute_budget 1.0
+config eval_routing_noise 0.15
+config cot_dim 2
+config cot_components 6
+config layer_norm_eps 1e-05
+config B 2
+config T 16
+config width_choices 8
+tolerance max_abs 1e-5
+tolerance max_rel 1e-4
+tensor expected hidden float32 expected_hidden.bin 2,16,8
+tensor expected x_attn float32 expected_x_attn.bin 2,16,8
+tensor expected local_out float32 expected_local_out.bin 2,16,8
+tensor expected low_rank_out float32 expected_low_rank_out.bin 2,16,8
+tensor expected ssm_out float32 expected_ssm_out.bin 2,16,8
+tensor expected path_probs float32 expected_path_probs.bin 2,16,3
+tensor expected combined float32 expected_combined.bin 2,16,8
+tensor expected residual float32 expected_residual.bin 2,16,8
+tensor expected xf float32 expected_xf.bin 2,16,8
+tensor expected ffn_out float32 expected_ffn_out.bin 2,16,8
+tensor expected block_out float32 expected_block_out.bin 2,16,8
+end

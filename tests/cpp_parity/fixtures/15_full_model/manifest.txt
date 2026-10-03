@@ -1,0 +1,43 @@
+component 15_full_model
+config vocab_size 8
+config hidden_size 8
+config num_layers 1
+config num_attention_heads 2
+config max_depth 1
+config num_widths 1
+config num_paths 3
+config num_experts 1
+config top_k 1
+config temperature 1.0
+config cost_aware_routing 1
+config compute_budget 1.0
+config eval_routing_noise 0.15
+config context_length 32
+config pad_token_id 0
+config ssm_state_dim 16
+config ssm_kernel_size 3
+config local_window_size 128
+config low_rank_dim 96
+config expert_hidden_multiplier 4.0
+config merger_hidden_multiplier 2.0
+config layer_norm_eps 1e-05
+config cot_dim 2
+config cot_components 6
+config B 2
+config T 16
+config width_choices 8
+tolerance max_abs 1e-5
+tolerance max_rel 1e-4
+tensor expected token_emb float32 expected_token_emb.bin 2,16,8
+tensor expected pos_emb float32 expected_pos_emb.bin 2,16,8
+tensor expected block_0_input float32 expected_block_0_input.bin 2,16,8
+tensor expected block_0_output float32 expected_block_0_output.bin 2,16,8
+tensor expected merger_output float32 expected_merger_output.bin 2,16,8
+tensor expected final_norm_out float32 expected_final_norm_out.bin 2,16,8
+tensor expected logits float32 expected_logits.bin 2,16,8
+tensor expected input_ids int64 expected_input_ids.bin 2,16
+tensor expected labels int64 expected_labels.bin 2,16
+tensor expected combined_embeddings float32 expected_combined_embeddings.bin 2,16,8
+tensor expected lm_loss float32 expected_lm_loss.bin 
+tensor expected total_loss float32 expected_total_loss.bin 
+end
