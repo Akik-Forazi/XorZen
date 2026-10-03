@@ -64,7 +64,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential gcc g++ gfortran ninja-build
-          pip install torch --index-url https://download.pytorch.org/whl/cpu --no-deps
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
           pip install numpy pyyaml scipy sentencepiece transformers tqdm \
                       einops pydantic psutil tokenizers datasets cryptography ninja
 
@@ -72,7 +72,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash
         run: |
-          pip install torch --index-url https://download.pytorch.org/whl/cpu --no-deps
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
           pip install numpy pyyaml scipy sentencepiece transformers tqdm \
                       einops pydantic psutil tokenizers datasets cryptography ninja
 
@@ -80,7 +80,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           brew install ninja
-          pip install torch --no-deps
+          pip install torch
           pip install numpy pyyaml scipy sentencepiece transformers tqdm \
                       einops pydantic psutil tokenizers datasets cryptography
 
