@@ -130,24 +130,31 @@ def jit_moe_dispatch(
 
 @torch.jit.script
 def jit_diagonal_ssm_scan(
-    b_seq: torch.Tensor,
-    a_diag: torch.Tensor,
+    A_bar: torch.Tensor,
+    B_bar: torch.Tensor,
 ) -> torch.Tensor:
-    """JIT-compiled diagonal SSM scan: h_t = a * h_{t-1} + b_t.
+    """JIT-compiled sequential SSM scan matching ssm_scan.sequential_scan signature.
+
+    h_t = A_bar_t * h_{t-1} + B_bar_t
 
     Args:
-        b_seq: [B, T, S] input sequence
-        a_diag: [S] diagonal of discretized A (constant per sequence)
+        A_bar: [B, T, N] — per-timestep state transition (in (0, 1))
+        B_bar: [B, T, N] — per-timestep input
 
     Returns:
-        [B, T, S] SSM states
+        states: [B, T, N]
     """
-    B, T, S = b_seq.shape
-    states = torch.zeros(B, T, S, device=b_seq.device, dtype=b_seq.dtype)
-    h = torch.zeros(B, S, device=b_seq.device, dtype=b_seq.dtype)
-    for t in range(T):
-        h = a_diag.unsqueeze(0) * h + b_seq[:, t]
+    B_size = A_bar.shape[0]
+    T_size = A_bar.shape[1]
+    N_size = A_bar.shape[2]
+
+    states = torch.zeros(B_size, T_size, N_size, device=A_bar.device, dtype=A_bar.dtype)
+    h = torch.zeros(B_size, N_size, device=A_bar.device, dtype=A_bar.dtype)
+
+    for t in range(T_size):
+        h = A_bar[:, t] * h + B_bar[:, t]
         states[:, t] = h
+
     return states
 
 
@@ -207,49 +214,23 @@ def auto_patch_model(model: nn.Module) -> bool:
 
     patched = False
 
-    # 1. Patch MoE dispatch in ShardedExpertFabric
-    try:
-        from xorzen.model.zmoe import ShardedExpertFabric
-        original_forward = ShardedExpertFabric.forward
-
-        def patched_moe_forward(self, hidden_states, expert_indices, expert_weights,
-                                attention_mask=None):
-            # Use JIT-compiled dispatch
-            from xorzen.speed.jit_kernels import jit_moe_dispatch
-            # Get the registered experts (they're nn.ModuleDict in the fixed version)
-            if hasattr(self, 'experts') and isinstance(self.experts, nn.ModuleDict):
-                experts_list = [self.experts[str(i)] for i in range(self.num_experts)]
-            elif hasattr(self, 'experts') and isinstance(self.experts, nn.ModuleList):
-                experts_list = list(self.experts)
-            else:
-                # Fall back to original if experts aren't accessible
-                return original_forward(self, hidden_states, expert_indices,
-                                       expert_weights, attention_mask)
-
-            output = jit_moe_dispatch(
-                hidden_states, expert_indices, expert_weights,
-                experts_list, self.top_k
-            )
-            # Return in the same format as original
-            from xorzen.model.zmoe import MoEOutput
-            return MoEOutput(output=output, load_balance_loss=torch.tensor(0.0),
-                           routing_entropy=torch.tensor(0.0),
-                           cache_hit_rate=1.0, experts_used=self.num_experts,
-                           total_load_time_ms=0.0, avg_load_time_ms=0.0)
-
-        ShardedExpertFabric.forward = patched_moe_forward
-        patched = True
-        print("[xorzen.jit] Patched ShardedExpertFabric.forward → jit_moe_dispatch")
-    except Exception as e:
-        print(f"[xorzen.jit] Could not patch MoE: {e}")
+    # 1. Patch MoE dispatch — SKIP for now, the MoEOutput unpacking is too
+    #    fragile across different call sites. The MoE loop is already fast
+    #    enough with the .item() sync elimination (commit d14adc1).
+    # TODO: Re-enable after verifying MoEOutput contract across all callers.
+    # try:
+    #     ...
+    # except:
+    #     ...
 
     # 2. Patch SSM scan
     try:
-        from xorzen.model.components.hass_block import SSMPathwayImpl
-        if hasattr(SSMPathwayImpl, '_sequential_scan'):
-            SSMPathwayImpl._sequential_scan = jit_diagonal_ssm_scan
-            patched = True
-            print("[xorzen.jit] Patched SSMPathway._sequential_scan → jit_diagonal_ssm_scan")
+        from xorzen.model.components.ssm_scan import sequential_scan
+        import xorzen.model.components.ssm_scan as ssm_module
+        # Patch the sequential_scan function used by SSMPathway
+        ssm_module.sequential_scan = jit_diagonal_ssm_scan
+        patched = True
+        print("[xorzen.jit] Patched ssm_scan.sequential_scan → jit_diagonal_ssm_scan")
     except Exception as e:
         print(f"[xorzen.jit] Could not patch SSM: {e}")
 
