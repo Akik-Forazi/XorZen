@@ -89,18 +89,9 @@ struct HASSBlockImpl : torch::nn::Module {
 };
 TORCH_MODULE(HASSBlock);
 
-struct GatedMergerImpl : torch::nn::Module {
-    ModelConfig config;
-    torch::nn::Sequential gate{nullptr};
-    torch::nn::Linear cot_proj{nullptr};
-    torch::nn::LayerNorm norm{nullptr};
-
-    explicit GatedMergerImpl(ModelConfig config);
-    torch::Tensor forward(const torch::Tensor& hass_output,
-                          const torch::Tensor& moe_output,
-                          const torch::Tensor& cot_vector,
-                          const torch::Tensor& attention_mask = {});
-};
-TORCH_MODULE(GatedMerger);
+// NOTE: The 2-gate GatedMergerImpl previously declared here has been REMOVED.
+// The correct 3-gate GatedMergerImpl (matching Python xorzenMergerGate) lives
+// in xorzen/merger.h and xorzen.cpp/src/model/merger.cpp. The main model
+// (xorzen_model.cpp) now uses XorzenMergerGate from merger.h.
 
 } // namespace xorzen

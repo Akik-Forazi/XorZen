@@ -319,27 +319,8 @@ torch::Tensor HASSBlockImpl::forward(const torch::Tensor& x,
     return residual + dropout->forward(ffn_out);
 }
 
-GatedMergerImpl::GatedMergerImpl(ModelConfig cfg) : config(std::move(cfg)) {
-    config.normalize();
-    gate = register_module("gate", torch::nn::Sequential(
-        torch::nn::Linear(config.hidden_size * 2 + config.cot_total_dim(), config.hidden_size),
-        torch::nn::GELU(),
-        torch::nn::Linear(config.hidden_size, 2),
-        torch::nn::Softmax(-1)));
-    cot_proj = register_module("cot_proj", torch::nn::Linear(config.cot_total_dim(), config.hidden_size));
-    norm = register_module("norm", torch::nn::LayerNorm(torch::nn::LayerNormOptions({config.hidden_size})));
-}
-
-torch::Tensor GatedMergerImpl::forward(const torch::Tensor& hass_output,
-                                       const torch::Tensor& moe_output,
-                                       const torch::Tensor& cot_vector,
-                                       const torch::Tensor& attention_mask) {
-    auto gate_input = torch::cat({hass_output, moe_output, cot_vector}, -1);
-    auto weights = gate->forward(gate_input);
-    auto cot = cot_proj->forward(cot_vector);
-    auto merged = hass_output * weights.slice(-1, 0, 1) + moe_output * weights.slice(-1, 1, 2) + 0.05 * cot;
-    if (attention_mask.defined()) merged = merged * attention_mask.unsqueeze(-1).to(merged.dtype());
-    return norm->forward(merged);
-}
+// NOTE: The 2-gate GatedMergerImpl previously defined here has been REMOVED.
+// The correct 3-gate GatedMergerImpl (matching Python xorzenMergerGate) lives
+// in src/model/merger.cpp. The main model uses XorzenMergerGate from merger.h.
 
 } // namespace xorzen

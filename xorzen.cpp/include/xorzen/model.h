@@ -7,6 +7,7 @@
 #include "xorzen/expert.h"
 #include "xorzen/cot.h"
 #include "xorzen/igris.h"
+#include "xorzen/merger.h"
 
 namespace xorzen {
 
@@ -19,7 +20,7 @@ struct XorzenModelImpl : torch::nn::Module {
     RoutingRegularizer routing_regularizer{nullptr};
     torch::nn::ModuleList blocks{nullptr};
     ShardedExpertFabric moe{nullptr};
-    GatedMerger merger{nullptr};
+    XorzenMergerGate merger{nullptr};
     RMSNorm final_norm{nullptr};
     torch::nn::Linear lm_head{nullptr};
     

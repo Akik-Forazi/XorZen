@@ -21,7 +21,7 @@ XorzenModelImpl::XorzenModelImpl(ModelConfig cfg, bool test_mode) : config(std::
         blocks->push_back(HASSBlock(config, i));
     }
     moe = register_module("moe", ShardedExpertFabric(config, test_mode));
-    merger = register_module("merger", GatedMerger(config));
+    merger = register_module("merger", XorzenMergerGate(config));
     final_norm = register_module("final_norm", RMSNorm(config.hidden_size, config.layer_norm_eps));
     lm_head = register_module("lm_head",
         torch::nn::Linear(torch::nn::LinearOptions(config.hidden_size, config.vocab_size).bias(false)));

@@ -465,34 +465,44 @@ void run_merger(const Manifest& m, const std::string& fd, const std::string& od)
     Tensor moe  = I["moe_output"];
     Tensor cot  = I["cot_vector"];
 
-    // The C++ GatedMergerImpl (hass_block.cpp:322-343) has a structurally
-    // DIFFERENT gate from the Python xorzenMergerGate:
-    //
-    //   C++: gate = Sequential(Linear(in, hidden), GELU, Linear(hidden, 2), Softmax(-1))
-    //        merged = hass*w[0] + moe*w[1] + 0.05 * cot_proj(cot)
-    //   Python: gate_controller = Sequential(Linear(in, hidden*2), SiLU, Linear(hidden*2, 3))
-    //        merged = hass*w[0] + moe*w[1] + cot*w[2]   (3-way softmax over HASS+MoE+CoT)
-    //
-    // The shapes don't match: C++ gate.2 is [2, hidden], Python gate_controller.2 is [3, hidden*2].
-    // So we CANNOT run the C++ math with Python parameters.
-    //
-    // We emit a sentinel tensor + an explanatory note in the manifest so the
-    // compare script can mark this as ARCH_MISMATCH.
-    std::filesystem::create_directories(od);
-    auto sentinel = torch::zeros_like(hass);
-    write_tensor(sentinel, od + "/output_y.bin");
+    // Mirror XorzenMergerGateImpl::forward → GatedMergerImpl::forward
+    // (merger.cpp:54-124). This is the CORRECT 3-gate Python-compatible
+    // implementation. Parameter names match Python's xorzenMergerGate:
+    //   merger.merger_impl.gate_controller.0.{weight,bias}  (Linear)
+    //   merger.merger_impl.gate_controller.2.{weight,bias}  (Linear; index 1 is SiLU)
+    //   merger.merger_impl.cot_proj.{weight,bias}
+    //   merger.merger_impl.output_norm.{weight,bias}
+    int64_t H = hass.size(-1);
+    int64_t total_cot_dim = cot.size(-1);
+    // merger_hidden is inferred from the gate_controller.0.weight shape, not read
+    // from config — the fixture doesn't carry merger_hidden_multiplier.
 
-    std::ofstream meta(od + "/outputs_manifest.txt");
-    meta << "component outputs\n";
-    meta << "tensor output y float32 output_y.bin ";
-    for (size_t i = 0; i < sentinel.sizes().size(); ++i) {
-        if (i > 0) meta << ",";
-        meta << sentinel.size(i);
-    }
-    meta << "\n";
-    meta << "arch_status MISMATCH\n";
-    meta << "arch_note C++_GatedMerger_has_2way_gate_GELU_activation_Python_xorzenMergerGate_has_3way_gate_SiLU_activation_param_shapes_incompatible\n";
-    meta << "end\n";
+    auto gc0_w = P.at("merger.merger_impl.gate_controller.0.weight");
+    auto gc0_b = P.at("merger.merger_impl.gate_controller.0.bias");
+    auto gc2_w = P.at("merger.merger_impl.gate_controller.2.weight");
+    auto gc2_b = P.at("merger.merger_impl.gate_controller.2.bias");
+    auto cot_proj_w = P.at("merger.merger_impl.cot_proj.weight");
+    auto cot_proj_b = P.at("merger.merger_impl.cot_proj.bias");
+    auto out_norm_w = P.at("merger.merger_impl.output_norm.weight");
+    auto out_norm_b = P.at("merger.merger_impl.output_norm.bias");
+
+    // gate_input = cat([hass, moe, cot], -1)  shape [B, T, 2H+C]
+    auto gate_input = torch::cat({hass, moe, cot}, -1);
+    // gate_controller: Linear(input, merger_hidden) → SiLU → Linear(merger_hidden, 3)
+    auto h = torch::silu(torch::linear(gate_input, gc0_w, gc0_b));
+    auto gates = torch::linear(h, gc2_w, gc2_b);          // [B, T, 3]
+    auto gate_weights = torch::softmax(gates, /*dim=*/-1);
+    auto g = gate_weights.chunk(3, -1);
+    Tensor g_hass = g[0], g_moe = g[1], g_cot = g[2];
+
+    auto cot_h = torch::linear(cot, cot_proj_w, cot_proj_b);  // [B, T, H]
+    auto fused = g_hass * hass + g_moe * moe + g_cot * cot_h; // [B, T, H]
+    // output_norm: LayerNorm(hidden, eps=cfg.layer_norm_eps)
+    double eps = config_double(m, "layer_norm_eps", 1e-5);
+    Tensor y = torch::layer_norm(fused, {H}, out_norm_w, out_norm_b, eps);
+    // Note: Python applies dropout AFTER output_norm. In eval mode (no dropout),
+    // this is a no-op, so the fixture (generated in eval mode) doesn't need it.
+    write_outputs(od, {{"y", y}});
 }
 
 void run_lm_head(const Manifest& m, const std::string& fd, const std::string& od) {
