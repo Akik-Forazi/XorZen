@@ -137,23 +137,23 @@ void AdaptiveRouterImpl::init_weights() {
     //   feature_encoder Linears: gain=0.5
     //   depth/width/path/expert_router Linears: gain=0.1
     //   complexity/uncertainty Linears: gain=0.5
-    auto init_linear = [](torch::nn::Linear lin, double gain) {
+    auto init_linear_impl = [](torch::nn::LinearImpl* lin, double gain) {
         if (lin) {
             torch::nn::init::xavier_uniform_(lin->weight, gain);
             if (lin->bias.defined()) torch::nn::init::zeros_(lin->bias);
         }
     };
     for (auto& m : feature_encoder->modules(false)) {
-        if (auto* lin = m->as<torch::nn::Linear>()) init_linear(*lin, 0.5);
+        if (auto* lin = m->as<torch::nn::Linear>()) init_linear_impl(lin, 0.5);
     }
     for (auto& seq : {depth_router, width_router, path_router, expert_router}) {
         for (auto& m : seq->modules(false)) {
-            if (auto* lin = m->as<torch::nn::Linear>()) init_linear(*lin, 0.1);
+            if (auto* lin = m->as<torch::nn::Linear>()) init_linear_impl(lin, 0.1);
         }
     }
     for (auto& seq : {complexity_estimator, uncertainty_estimator}) {
         for (auto& m : seq->modules(false)) {
-            if (auto* lin = m->as<torch::nn::Linear>()) init_linear(*lin, 0.5);
+            if (auto* lin = m->as<torch::nn::Linear>()) init_linear_impl(lin, 0.5);
         }
     }
 }

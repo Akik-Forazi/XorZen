@@ -85,6 +85,15 @@ struct ModelConfig {
     int64_t cache_size_mb = 512;
     int64_t max_expert_cache = 24;
     std::string expert_shard_dir = "experts_cpp";
+    bool shard_experts = false;
+    int64_t router_num_layers = 1;
+    int64_t merger_num_layers = 1;
+    bool use_sliced_ffn = true;
+    bool causal = true;
+    bool use_moe = true;
+    bool test_mode = false;
+    float target_active_ratio = 0.1f;
+    bool unify_load_balance = true;
     float load_balancing_weight = 0.01f;
 
     // AniXO Chunk Memory

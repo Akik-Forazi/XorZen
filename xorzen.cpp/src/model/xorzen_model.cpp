@@ -1,7 +1,11 @@
 #include "xorzen/model.h"
 #include "xorzen/ops.h"
 
+#include <filesystem>
+#include <fstream>
+#include <set>
 #include <stdexcept>
+#include <unordered_map>
 
 namespace xorzen {
 
@@ -206,6 +210,170 @@ void XorzenModelImpl::load_checkpoint(const std::string& path) {
     torch::serialize::InputArchive archive;
     archive.load_from(path);
     load(archive);
+}
+
+// ─── Load from per-tensor map (Python converter output) ─────────
+XorzenModelImpl::LoadResult
+XorzenModelImpl::load_from_tensor_map(
+    const std::unordered_map<std::string, torch::Tensor>& sd, bool strict) {
+    LoadResult result;
+    torch::NoGradGuard ng;
+
+    // Build the set of C++ parameter names we expect.
+    std::set<std::string> cpp_param_names;
+    for (const auto& nv : named_parameters()) cpp_param_names.insert(nv.key());
+    for (const auto& nv : named_buffers()) cpp_param_names.insert(nv.key());
+
+    // Track which Python keys we've consumed.
+    std::set<std::string> consumed;
+
+    // Helper: try to copy a Python tensor into a C++ parameter.
+    // Tries the exact name, then a Python alias.
+    auto try_copy = [&](torch::Tensor& param, const std::string& cpp_name,
+                        const std::vector<std::string>& py_aliases) {
+        for (const auto& alias : py_aliases) {
+            auto it = sd.find(alias);
+            if (it == sd.end()) continue;
+            if (it->second.sizes() != param.sizes()) {
+                result.shape_mismatches++;
+                result.shape_mismatch_keys.push_back(alias);
+                continue;
+            }
+            param.copy_(it->second);
+            result.matched++;
+            consumed.insert(alias);
+            return true;
+        }
+        return false;
+    };
+
+    // Iterate over all C++ parameters and try to load each.
+    for (auto& nv : named_parameters()) {
+        const auto& name = nv.key();
+        auto& param = nv.value();
+
+        // Direct match
+        { auto it = sd.find(name);
+          if (it != sd.end() && it->second.sizes() == param.sizes()) {
+              param.copy_(it->second); result.matched++; consumed.insert(name); continue;
+          }
+        }
+
+        // Python alias: moe.dummy_expert.* ← moe.experts.0.*
+        if (name.find("moe.dummy_expert.") == 0) {
+            auto py_name = std::string("moe.experts.0.") + name.substr(strlen("moe.dummy_expert."));
+            auto it = sd.find(py_name);
+            if (it != sd.end() && it->second.sizes() == param.sizes()) {
+                param.copy_(it->second); result.matched++; consumed.insert(py_name); continue;
+            }
+        }
+
+        // Python alias: blocks.{i}.local.* ← blocks.{i}.pathways.local.*
+        // C++ registers local/low_rank/ssm directly, Python uses a ModuleDict "pathways"
+        if (name.find("blocks.") == 0) {
+            // Insert ".pathways." after "blocks.{i}." for local/low_rank/ssm
+            auto dot = name.find('.', 8);  // find second dot after "blocks.{i}"
+            if (dot != std::string::npos) {
+                auto rest = name.substr(dot + 1);
+                if (rest.find("local.") == 0 || rest.find("low_rank.") == 0 || rest.find("ssm.") == 0) {
+                    auto py_name = name.substr(0, dot + 1) + "pathways." + rest;
+                    auto it = sd.find(py_name);
+                    if (it != sd.end() && it->second.sizes() == param.sizes()) {
+                        param.copy_(it->second); result.matched++; consumed.insert(py_name); continue;
+                    }
+                }
+            }
+        }
+
+        // Python alias: blocks.{i}.pathways.* — C++ uses same name (pathways is in the ModuleDict)
+        // No alias needed — the names should match.
+
+        // Not found
+        result.missing++;
+        result.missing_keys.push_back(name);
+    }
+
+    // Also handle buffers (e.g. router.width_values)
+    for (auto& nv : named_buffers()) {
+        const auto& name = nv.key();
+        auto& buf = nv.value();
+        auto it = sd.find(name);
+        if (it != sd.end() && it->second.sizes() == buf.sizes()) {
+            buf.copy_(it->second); result.matched++; consumed.insert(name);
+        }
+    }
+
+    // Tie lm_head to token_embedding if config says so
+    if (config.tie_word_embeddings) {
+        lm_head->weight = token_embedding->weight;
+    }
+
+    // Find unexpected keys (in Python but not consumed)
+    for (const auto& [k, v] : sd) {
+        if (consumed.find(k) == consumed.end()) {
+            // Known C++-only keys that are OK to skip
+            if (k.find("pathway_gate.") != std::string::npos ||
+                k.find("low_rank.context_weights") != std::string::npos ||
+                k.find("low_rank.ln_low_rank.") != std::string::npos ||
+                k.find("character_router.") != std::string::npos ||
+                k.find("cot_loss_head.") != std::string::npos) {
+                continue;  // C++-only, not an error
+            }
+            result.unexpected++;
+            result.unexpected_keys.push_back(k);
+        }
+    }
+
+    if (strict) {
+        if (result.missing > 0 || result.unexpected > 0 || result.shape_mismatches > 0) {
+            std::string msg = "load_from_tensor_map STRICT mode failed:\n";
+            msg += "  missing: " + std::to_string(result.missing) + "\n";
+            msg += "  unexpected: " + std::to_string(result.unexpected) + "\n";
+            msg += "  shape_mismatches: " + std::to_string(result.shape_mismatches) + "\n";
+            for (const auto& k : result.missing_keys) msg += "    MISSING: " + k + "\n";
+            for (const auto& k : result.unexpected_keys) msg += "    UNEXPECTED: " + k + "\n";
+            for (const auto& k : result.shape_mismatch_keys) msg += "    SHAPE: " + k + "\n";
+            throw std::runtime_error(msg);
+        }
+    }
+
+    return result;
+}
+
+// ─── Save to per-tensor .bin directory ──────────────────────────
+void XorzenModelImpl::save_to_tensor_map(const std::string& dir) const {
+    std::filesystem::create_directories(dir);
+    std::ofstream manifest(dir + "/state_dict_manifest.txt");
+    manifest << "state_dict\n";
+    for (const auto& nv : named_parameters()) {
+        const auto& name = nv.key();
+        const auto& t = nv.value();
+        auto tc = t.to(torch::kCPU).contiguous();
+        std::string fname = "param_" + name + ".bin";
+        std::ofstream f(dir + "/" + fname, std::ios::binary);
+        f.write(reinterpret_cast<const char*>(tc.data_ptr()), tc.nbytes());
+        std::string shape_csv;
+        for (size_t i = 0; i < tc.sizes().size(); ++i) {
+            if (i > 0) shape_csv += ",";
+            shape_csv += std::to_string(tc.size(i));
+        }
+        manifest << "tensor " << name << " float32 " << fname << " " << shape_csv << "\n";
+    }
+    for (const auto& nv : named_buffers()) {
+        const auto& name = nv.key();
+        const auto& t = nv.value();
+        auto tc = t.to(torch::kCPU).contiguous();
+        std::string fname = "param_" + name + ".bin";
+        std::ofstream f(dir + "/" + fname, std::ios::binary);
+        f.write(reinterpret_cast<const char*>(tc.data_ptr()), tc.nbytes());
+        std::string shape_csv;
+        for (size_t i = 0; i < tc.sizes().size(); ++i) {
+            if (i > 0) shape_csv += ",";
+            shape_csv += std::to_string(tc.size(i));
+        }
+        manifest << "tensor " << name << " float32 " << fname << " " << shape_csv << "\n";
+    }
+    manifest << "end\n";
 }
 
 torch::Tensor XorzenModelImpl::compute_load_balance_loss(const torch::Tensor& expert_indices,

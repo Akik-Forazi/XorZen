@@ -47,7 +47,25 @@ struct XorzenModelImpl : torch::nn::Module {
     int64_t count_parameters(bool only_trainable = false) const;
     void save_checkpoint(const std::string& path);
     void load_checkpoint(const std::string& path);
-    
+
+    // Load from a per-tensor .bin directory (compatible with Python converter output).
+    // Maps Python state_dict keys → C++ parameter names, copies weights in-place.
+    // In test_mode, moe.experts.0.* → moe.dummy_expert.*.
+    // Returns a struct with matched/missing/unexpected counts.
+    struct LoadResult {
+        int64_t matched = 0;
+        int64_t missing = 0;      // C++ expects but Python doesn't have
+        int64_t unexpected = 0;   // Python has but C++ doesn't expect
+        int64_t shape_mismatches = 0;
+        std::vector<std::string> missing_keys;
+        std::vector<std::string> unexpected_keys;
+        std::vector<std::string> shape_mismatch_keys;
+    };
+    LoadResult load_from_tensor_map(const std::unordered_map<std::string, torch::Tensor>& sd,
+                                     bool strict = false);
+    // Save to a per-tensor .bin directory (for checkpoint lifecycle tests).
+    void save_to_tensor_map(const std::string& dir) const;
+
     void enable_cot(bool enabled = true);
 
 

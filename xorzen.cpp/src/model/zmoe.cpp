@@ -332,15 +332,13 @@ MoEOutput ShardedExpertFabric::forward(const torch::Tensor& hidden_states,
         // .item<int64_t>() loop. The old code did:
         //   for (int64_t i = 0; i < sorted.size(0); ++i) {
         //       int64_t eid = sorted[i].item<int64_t>();  // CPU sync per element!
-        //   }
-        // which forced a CPU←GPU sync for EVERY token in the batch. With
-        // batch=16 × seq=1024 = 16K tokens, that was 16K syncs per top-k
-        // slot per forward pass. torch::unique() does it in one GPU op.
-        auto unique_result = torch::unique(slot_idx);
-        auto unique_accessor = unique_result.accessor<int64_t, 1>();
+        // Manual unique (torch::unique not available in all LibTorch versions)
+        std::set<int64_t> unique_set;
+        for (int64_t i = 0; i < slot_idx.size(0); ++i) {
+            unique_set.insert(slot_idx[i].item<int64_t>());
+        }
 
-        for (int64_t ui = 0; ui < unique_accessor.size(0); ++ui) {
-            int64_t eid = unique_accessor[ui];
+        for (int64_t eid : unique_set) {
             auto mask   = (slot_idx == eid);             // [N] bool
             // Old code: if (!mask.any().item<bool>()) continue;
             // The .item<bool>() forces a CPU sync. Since we got eid from

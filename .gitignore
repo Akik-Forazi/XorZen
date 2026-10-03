@@ -116,3 +116,6 @@ tests/cpp_parity/cpp/training_smoke_test
 tests/cpp_parity/cpp/generation_test
 tests/cpp_parity/cpp/training_20_steps
 tests/cpp_parity/cpp/checkpoint_lifecycle
+tests/cpp_parity/cpp/xorzen_cpp.so
+tests/cpp_parity/cpp/real_model_test
+tests/cpp_parity/cpp/build/
