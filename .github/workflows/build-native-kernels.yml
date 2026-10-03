@@ -65,20 +65,27 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential gcc g++ gfortran ninja-build
           pip install torch --index-url https://download.pytorch.org/whl/cpu --no-deps
-          pip install numpy pyyaml
+          pip install numpy pyyaml scipy sentencepiece transformers tqdm \
+                      einops pydantic psutil tokenizers datasets cryptography ninja
 
       - name: Install dependencies (Windows)
         if: runner.os == 'Windows'
+        shell: bash
         run: |
           pip install torch --index-url https://download.pytorch.org/whl/cpu --no-deps
-          pip install numpy pyyaml ninja
+          pip install numpy pyyaml scipy sentencepiece transformers tqdm \
+                      einops pydantic psutil tokenizers datasets cryptography ninja
 
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
         run: |
           brew install ninja
           pip install torch --no-deps
-          pip install numpy pyyaml
+          pip install numpy pyyaml scipy sentencepiece transformers tqdm \
+                      einops pydantic psutil tokenizers datasets cryptography
+
+      - name: Install xorzen (no-deps to preserve torch)
+        run: pip install --no-deps -e .
 
       - name: Compile native kernels
         env:

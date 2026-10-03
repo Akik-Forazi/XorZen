@@ -22,7 +22,8 @@ jobs:
       - name: Install dependencies
         run: |
           pip install torch --index-url https://download.pytorch.org/whl/cpu --no-deps
-          pip install numpy pyyaml tokenizers datasets cryptography psutil einops pydantic
+          pip install numpy pyyaml tokenizers datasets cryptography psutil einops pydantic \
+                      scipy sentencepiece transformers tqdm ninja
 
       - name: Install xorzen (no-deps to preserve torch)
         run: pip install --no-deps -e .
