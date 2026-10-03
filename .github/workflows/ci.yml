@@ -210,22 +210,7 @@ jobs:
 
       - name: Import test
         run: |
-          python -c "
-import xorzen
-print(f'xorzen version: {xorzen.__version__}')
-print(f'xorzen module path: {xorzen.__file__}')
-# Minimal model operation
-from xorzen.models.zero import zero_tiny_23k
-import torch
-torch.manual_seed(42)
-m = zero_tiny_23k(test_mode=False)
-m.eval()
-x = torch.randint(0, 8, (1, 4))
-with torch.no_grad():
-    out = m(input_ids=x, return_dict=True)
-print(f'forward OK: logits shape={out.logits.shape}')
-print('IMPORT TEST PASS')
-"
+          python -c "import xorzen; print(f'xorzen version: {xorzen.__version__}'); from xorzen.models.zero import zero_tiny_23k; import torch; torch.manual_seed(42); m = zero_tiny_23k(test_mode=False); m.eval(); x = torch.randint(0, 8, (1, 4)); out = m(input_ids=x, return_dict=True); print(f'forward OK: logits shape={out.logits.shape}'); print('IMPORT TEST PASS')"
 
   # ═══════════════════════════════════════════════════════════════
   # Job D: Integration — Python → checkpoint → C++ → inference
