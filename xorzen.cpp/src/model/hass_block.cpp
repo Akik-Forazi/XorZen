@@ -372,17 +372,43 @@ torch::Tensor HASSBlockImpl::forward(const torch::Tensor& x,
     auto local_out = local->forward(xa, attention_mask);
     auto low_rank_out = low_rank->forward(xa);
     auto ssm_out = ssm->forward(xa);
-    torch::Tensor w;
+
+    torch::Tensor combined;
     if (routing_decision == nullptr || compute_all_pathways) {
         // No routing — use uniform 1/3 weighting (Python v0.5 behavior)
-        w = torch::ones({xa.size(0), xa.size(1), 3}, xa.options()) / 3.0;
+        auto w = torch::ones({xa.size(0), xa.size(1), 3}, xa.options()) / 3.0;
+        combined = local_out * w.select(-1, 0).unsqueeze(-1) +
+                   low_rank_out * w.select(-1, 1).unsqueeze(-1) +
+                   ssm_out * w.select(-1, 2).unsqueeze(-1);
     } else {
-        // Use router path_probs directly (Python v0.5 behavior)
-        w = routing_decision->path_probs;
+        // Sparse pathway dispatch (mirror Python sparse_pathway_dispatch).
+        // top_k = pathway_top_k (default 2). Build hard mask, renormalize path_probs.
+        auto path_probs = routing_decision->path_probs;
+        int64_t num_paths = path_probs.size(-1);
+        int64_t top_k = 2;  // Python config.pathway_top_k default
+
+        if (top_k >= num_paths) {
+            // No sparsity — use raw path_probs
+            combined = local_out * path_probs.select(-1, 0).unsqueeze(-1) +
+                       low_rank_out * path_probs.select(-1, 1).unsqueeze(-1) +
+                       ssm_out * path_probs.select(-1, 2).unsqueeze(-1);
+        } else {
+            // Build hard top-k mask
+            auto topk = path_probs.topk(top_k, /*dim=*/-1);
+            auto topk_idx = std::get<1>(topk);
+            auto hard_mask = torch::zeros_like(path_probs);
+            hard_mask.scatter_(-1, topk_idx, 1.0);
+            // Renormalize: selected_weights = path_probs * hard_mask, then / sum
+            auto selected = path_probs * hard_mask;
+            auto sel_sum = selected.sum(-1, /*keepdim=*/true);
+            sel_sum = torch::where(sel_sum > 1e-8, sel_sum, torch::ones_like(sel_sum));
+            auto norm_w = selected / sel_sum;
+            combined = local_out * norm_w.select(-1, 0).unsqueeze(-1) +
+                       low_rank_out * norm_w.select(-1, 1).unsqueeze(-1) +
+                       ssm_out * norm_w.select(-1, 2).unsqueeze(-1);
+        }
     }
-    auto combined = local_out * w.slice(-1, 0, 1) +
-                    low_rank_out * w.slice(-1, 1, 2) +
-                    ssm_out * w.slice(-1, 2, 3);
+
     auto residual = x + dropout->forward(combined);
     auto xf = ln2->forward(residual);
     auto ffn_out = routing_decision ? ffn->forward(xf, routing_decision->width_multiplier) : ffn->forward(xf);
