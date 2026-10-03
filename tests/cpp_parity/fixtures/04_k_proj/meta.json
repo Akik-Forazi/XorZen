@@ -1,0 +1,67 @@
+{
+  "component": "04_k_proj",
+  "seed": 42,
+  "pytorch_version": "2.14.1+cpu",
+  "config": {
+    "in_features": 8,
+    "out_features": 8,
+    "bias": true
+  },
+  "tolerance": {
+    "max_abs_error": 1e-06,
+    "max_rel_error": 1e-05
+  },
+  "tensors": {
+    "inputs": [
+      {
+        "name": "x",
+        "shape": [
+          1,
+          8,
+          8
+        ],
+        "dtype": "float32",
+        "file": "input_x.bin",
+        "numel": 64,
+        "nbytes": 256
+      }
+    ],
+    "params": [
+      {
+        "name": "weight",
+        "shape": [
+          8,
+          8
+        ],
+        "dtype": "float32",
+        "file": "param_weight.bin",
+        "numel": 64,
+        "nbytes": 256
+      },
+      {
+        "name": "bias",
+        "shape": [
+          8
+        ],
+        "dtype": "float32",
+        "file": "param_bias.bin",
+        "numel": 8,
+        "nbytes": 32
+      }
+    ],
+    "expected": [
+      {
+        "name": "y",
+        "shape": [
+          1,
+          8,
+          8
+        ],
+        "dtype": "float32",
+        "file": "expected_y.bin",
+        "numel": 64,
+        "nbytes": 256
+      }
+    ]
+  }
+}

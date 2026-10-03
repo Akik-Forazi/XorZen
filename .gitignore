@@ -79,6 +79,20 @@ checkpoints/
 # Quantization shard output
 quantization_shards/
 
+# ─── C++ parity harness artifacts ────────────────────────────────────────
+# The binary is built locally; do not commit.
+tests/cpp_parity/cpp/parity_harness
+tests/cpp_parity/cpp_output/
+tests/cpp_parity/reports/
+
+# BUT: the parity fixtures (deterministic .bin + .json) MUST be committed
+# because they are the frozen Python specification.
+!tests/cpp_parity/fixtures/
+!tests/cpp_parity/fixtures/**
+!tests/cpp_parity/fixtures/**/*.bin
+!tests/cpp_parity/fixtures/**/*.json
+!tests/cpp_parity/fixtures/**/*.txt
+
 # ─── Secrets / credentials / machine-specific paths ───────────────────────
 .env
 .env.*

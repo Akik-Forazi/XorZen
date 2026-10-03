@@ -1,0 +1,11 @@
+component 10_moe_aggregation
+config num_experts 4
+config top_k 2
+config hidden_size 8
+tolerance max_abs 1e-06
+tolerance max_rel 1e-05
+tensor input expert_outputs float32 input_expert_outputs.bin 4,8
+tensor input expert_indices int64 input_expert_indices.bin 1,8,2
+tensor input expert_weights float32 input_expert_weights.bin 1,8,2
+tensor expected y float32 expected_y.bin 1,8,8
+end

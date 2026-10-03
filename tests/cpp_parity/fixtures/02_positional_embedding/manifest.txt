@@ -1,0 +1,9 @@
+component 02_positional_embedding
+config num_embeddings 32
+config embedding_dim 8
+tolerance max_abs 0.0
+tolerance max_rel 0.0
+tensor input position_ids int64 input_position_ids.bin 1,8
+tensor param weight float32 param_weight.bin 32,8
+tensor expected pos_emb float32 expected_pos_emb.bin 1,8,8
+end

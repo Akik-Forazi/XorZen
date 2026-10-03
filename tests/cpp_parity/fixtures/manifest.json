@@ -1,0 +1,121 @@
+{
+  "seed": 42,
+  "pytorch_version": "2.14.1+cpu",
+  "components": [
+    {
+      "component": "01_normalization",
+      "status": "ok",
+      "inputs": 1,
+      "params": 2,
+      "expected": 1,
+      "size_bytes": 1698
+    },
+    {
+      "component": "02_positional_embedding",
+      "status": "ok",
+      "inputs": 1,
+      "params": 1,
+      "expected": 1,
+      "size_bytes": 2309
+    },
+    {
+      "component": "03_q_proj",
+      "status": "ok",
+      "inputs": 1,
+      "params": 2,
+      "expected": 1,
+      "size_bytes": 1934
+    },
+    {
+      "component": "04_k_proj",
+      "status": "ok",
+      "inputs": 1,
+      "params": 2,
+      "expected": 1,
+      "size_bytes": 1934
+    },
+    {
+      "component": "05_v_proj",
+      "status": "ok",
+      "inputs": 1,
+      "params": 2,
+      "expected": 1,
+      "size_bytes": 1934
+    },
+    {
+      "component": "06_attention",
+      "status": "ok",
+      "inputs": 1,
+      "params": 12,
+      "expected": 1,
+      "size_bytes": 5057
+    },
+    {
+      "component": "07_ssm_scan",
+      "status": "ok",
+      "inputs": 3,
+      "params": 0,
+      "expected": 2,
+      "size_bytes": 2093
+    },
+    {
+      "component": "08_sliced_ffn",
+      "status": "ok",
+      "inputs": 1,
+      "params": 8,
+      "expected": 1,
+      "size_bytes": 5472
+    },
+    {
+      "component": "09_router",
+      "status": "ok",
+      "inputs": 2,
+      "params": 48,
+      "expected": 14,
+      "size_bytes": 98986
+    },
+    {
+      "component": "10_moe_aggregation",
+      "status": "ok",
+      "inputs": 3,
+      "params": 0,
+      "expected": 1,
+      "size_bytes": 1799
+    },
+    {
+      "component": "11_merger",
+      "status": "ok",
+      "inputs": 3,
+      "params": 8,
+      "expected": 1,
+      "size_bytes": 7004
+    },
+    {
+      "component": "12_lm_head",
+      "status": "ok",
+      "inputs": 1,
+      "params": 1,
+      "expected": 2,
+      "size_bytes": 2201
+    },
+    {
+      "component": "13_embeddings",
+      "status": "ok",
+      "inputs": 2,
+      "params": 2,
+      "expected": 3,
+      "size_bytes": 4107
+    },
+    {
+      "component": "14_ssm_pathway_full",
+      "status": "ok",
+      "inputs": 1,
+      "params": 17,
+      "expected": 1,
+      "size_bytes": 8500
+    }
+  ],
+  "total_components": 14,
+  "ok": 14,
+  "fail": 0
+}

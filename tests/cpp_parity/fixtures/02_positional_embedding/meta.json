@@ -1,0 +1,55 @@
+{
+  "component": "02_positional_embedding",
+  "seed": 42,
+  "pytorch_version": "2.14.1+cpu",
+  "config": {
+    "num_embeddings": 32,
+    "embedding_dim": 8
+  },
+  "tolerance": {
+    "max_abs_error": 0.0,
+    "max_rel_error": 0.0
+  },
+  "tensors": {
+    "inputs": [
+      {
+        "name": "position_ids",
+        "shape": [
+          1,
+          8
+        ],
+        "dtype": "int64",
+        "file": "input_position_ids.bin",
+        "numel": 8,
+        "nbytes": 64
+      }
+    ],
+    "params": [
+      {
+        "name": "weight",
+        "shape": [
+          32,
+          8
+        ],
+        "dtype": "float32",
+        "file": "param_weight.bin",
+        "numel": 256,
+        "nbytes": 1024
+      }
+    ],
+    "expected": [
+      {
+        "name": "pos_emb",
+        "shape": [
+          1,
+          8,
+          8
+        ],
+        "dtype": "float32",
+        "file": "expected_pos_emb.bin",
+        "numel": 64,
+        "nbytes": 256
+      }
+    ]
+  }
+}

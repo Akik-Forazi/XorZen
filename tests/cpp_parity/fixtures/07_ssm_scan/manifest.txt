@@ -1,0 +1,13 @@
+component 07_ssm_scan
+config B 1
+config T 8
+config N 4
+config note Diagonal ZOH scan. h_t = A_bar_t * h_{t-1} + B_bar_t. y_t = C_t * h_t.
+tolerance max_abs 1e-06
+tolerance max_rel 1e-05
+tensor input A_bar float32 input_A_bar.bin 1,8,4
+tensor input B_bar float32 input_B_bar.bin 1,8,4
+tensor input C float32 input_C.bin 1,8,4
+tensor expected y float32 expected_y.bin 1,8,4
+tensor expected states float32 expected_states.bin 1,8,4
+end

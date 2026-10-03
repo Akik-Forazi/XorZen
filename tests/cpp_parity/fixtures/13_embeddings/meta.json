@@ -1,0 +1,103 @@
+{
+  "component": "13_embeddings",
+  "seed": 42,
+  "pytorch_version": "2.14.1+cpu",
+  "config": {
+    "vocab_size": 8,
+    "context_length": 32,
+    "hidden_size": 8,
+    "pad_token_id": 0
+  },
+  "tolerance": {
+    "max_abs_error": 0.0,
+    "max_rel_error": 0.0
+  },
+  "tensors": {
+    "inputs": [
+      {
+        "name": "input_ids",
+        "shape": [
+          1,
+          8
+        ],
+        "dtype": "int64",
+        "file": "input_input_ids.bin",
+        "numel": 8,
+        "nbytes": 64
+      },
+      {
+        "name": "position_ids",
+        "shape": [
+          1,
+          8
+        ],
+        "dtype": "int64",
+        "file": "input_position_ids.bin",
+        "numel": 8,
+        "nbytes": 64
+      }
+    ],
+    "params": [
+      {
+        "name": "token_embedding_weight",
+        "shape": [
+          8,
+          8
+        ],
+        "dtype": "float32",
+        "file": "param_token_embedding_weight.bin",
+        "numel": 64,
+        "nbytes": 256
+      },
+      {
+        "name": "position_embedding_weight",
+        "shape": [
+          32,
+          8
+        ],
+        "dtype": "float32",
+        "file": "param_position_embedding_weight.bin",
+        "numel": 256,
+        "nbytes": 1024
+      }
+    ],
+    "expected": [
+      {
+        "name": "token_emb",
+        "shape": [
+          1,
+          8,
+          8
+        ],
+        "dtype": "float32",
+        "file": "expected_token_emb.bin",
+        "numel": 64,
+        "nbytes": 256
+      },
+      {
+        "name": "pos_emb",
+        "shape": [
+          1,
+          8,
+          8
+        ],
+        "dtype": "float32",
+        "file": "expected_pos_emb.bin",
+        "numel": 64,
+        "nbytes": 256
+      },
+      {
+        "name": "combined",
+        "shape": [
+          1,
+          8,
+          8
+        ],
+        "dtype": "float32",
+        "file": "expected_combined.bin",
+        "numel": 64,
+        "nbytes": 256
+      }
+    ]
+  }
+}

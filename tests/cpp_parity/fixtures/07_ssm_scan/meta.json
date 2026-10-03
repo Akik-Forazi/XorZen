@@ -1,0 +1,82 @@
+{
+  "component": "07_ssm_scan",
+  "seed": 42,
+  "pytorch_version": "2.14.1+cpu",
+  "config": {
+    "B": 1,
+    "T": 8,
+    "N": 4,
+    "note": "Diagonal ZOH scan. h_t = A_bar_t * h_{t-1} + B_bar_t. y_t = C_t * h_t."
+  },
+  "tolerance": {
+    "max_abs_error": 1e-06,
+    "max_rel_error": 1e-05
+  },
+  "tensors": {
+    "inputs": [
+      {
+        "name": "A_bar",
+        "shape": [
+          1,
+          8,
+          4
+        ],
+        "dtype": "float32",
+        "file": "input_A_bar.bin",
+        "numel": 32,
+        "nbytes": 128
+      },
+      {
+        "name": "B_bar",
+        "shape": [
+          1,
+          8,
+          4
+        ],
+        "dtype": "float32",
+        "file": "input_B_bar.bin",
+        "numel": 32,
+        "nbytes": 128
+      },
+      {
+        "name": "C",
+        "shape": [
+          1,
+          8,
+          4
+        ],
+        "dtype": "float32",
+        "file": "input_C.bin",
+        "numel": 32,
+        "nbytes": 128
+      }
+    ],
+    "params": [],
+    "expected": [
+      {
+        "name": "y",
+        "shape": [
+          1,
+          8,
+          4
+        ],
+        "dtype": "float32",
+        "file": "expected_y.bin",
+        "numel": 32,
+        "nbytes": 128
+      },
+      {
+        "name": "states",
+        "shape": [
+          1,
+          8,
+          4
+        ],
+        "dtype": "float32",
+        "file": "expected_states.bin",
+        "numel": 32,
+        "nbytes": 128
+      }
+    ]
+  }
+}

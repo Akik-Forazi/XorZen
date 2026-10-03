@@ -7,7 +7,7 @@
     "mode": "eval",
     "pytorch_version": "2.14.1+cpu",
     "python_version": "3.12.14",
-    "git_commit": "ffb9f0bd242ef2b2273e888c28ebd34200905e73",
+    "git_commit": "646e5cc47514ade6fbf511bae4db3d150d0c28e1",
     "git_branch": "main",
     "git_dirty": true,
     "pt_file": "golden_reference.pt",

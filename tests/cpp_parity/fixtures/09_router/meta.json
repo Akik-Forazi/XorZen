@@ -1,0 +1,714 @@
+{
+  "component": "09_router",
+  "seed": 42,
+  "pytorch_version": "2.14.1+cpu",
+  "config": {
+    "hidden_size": 8,
+    "max_depth": 1,
+    "num_widths": 1,
+    "num_paths": 3,
+    "num_experts": 1,
+    "top_k": 1,
+    "temperature": 1.0,
+    "cost_aware_routing": true,
+    "compute_budget": 1.0
+  },
+  "tolerance": {
+    "max_abs_error": 1e-05,
+    "max_rel_error": 0.0001
+  },
+  "tensors": {
+    "inputs": [
+      {
+        "name": "x",
+        "shape": [
+          1,
+          8,
+          8
+        ],
+        "dtype": "float32",
+        "file": "input_x.bin",
+        "numel": 64,
+        "nbytes": 256
+      },
+      {
+        "name": "cot_features",
+        "shape": [
+          1,
+          8,
+          12
+        ],
+        "dtype": "float32",
+        "file": "input_cot_features.bin",
+        "numel": 96,
+        "nbytes": 384
+      }
+    ],
+    "params": [
+      {
+        "name": "router.feature_encoder.0.weight",
+        "shape": [
+          128,
+          20
+        ],
+        "dtype": "float32",
+        "file": "param_router.feature_encoder.0.weight.bin",
+        "numel": 2560,
+        "nbytes": 10240
+      },
+      {
+        "name": "router.feature_encoder.0.bias",
+        "shape": [
+          128
+        ],
+        "dtype": "float32",
+        "file": "param_router.feature_encoder.0.bias.bin",
+        "numel": 128,
+        "nbytes": 512
+      },
+      {
+        "name": "router.feature_encoder.1.weight",
+        "shape": [
+          128
+        ],
+        "dtype": "float32",
+        "file": "param_router.feature_encoder.1.weight.bin",
+        "numel": 128,
+        "nbytes": 512
+      },
+      {
+        "name": "router.feature_encoder.1.bias",
+        "shape": [
+          128
+        ],
+        "dtype": "float32",
+        "file": "param_router.feature_encoder.1.bias.bin",
+        "numel": 128,
+        "nbytes": 512
+      },
+      {
+        "name": "router.feature_encoder.4.weight",
+        "shape": [
+          64,
+          128
+        ],
+        "dtype": "float32",
+        "file": "param_router.feature_encoder.4.weight.bin",
+        "numel": 8192,
+        "nbytes": 32768
+      },
+      {
+        "name": "router.feature_encoder.4.bias",
+        "shape": [
+          64
+        ],
+        "dtype": "float32",
+        "file": "param_router.feature_encoder.4.bias.bin",
+        "numel": 64,
+        "nbytes": 256
+      },
+      {
+        "name": "router.feature_encoder.5.weight",
+        "shape": [
+          64
+        ],
+        "dtype": "float32",
+        "file": "param_router.feature_encoder.5.weight.bin",
+        "numel": 64,
+        "nbytes": 256
+      },
+      {
+        "name": "router.feature_encoder.5.bias",
+        "shape": [
+          64
+        ],
+        "dtype": "float32",
+        "file": "param_router.feature_encoder.5.bias.bin",
+        "numel": 64,
+        "nbytes": 256
+      },
+      {
+        "name": "router.feature_encoder.8.weight",
+        "shape": [
+          32,
+          64
+        ],
+        "dtype": "float32",
+        "file": "param_router.feature_encoder.8.weight.bin",
+        "numel": 2048,
+        "nbytes": 8192
+      },
+      {
+        "name": "router.feature_encoder.8.bias",
+        "shape": [
+          32
+        ],
+        "dtype": "float32",
+        "file": "param_router.feature_encoder.8.bias.bin",
+        "numel": 32,
+        "nbytes": 128
+      },
+      {
+        "name": "router.feature_encoder.9.weight",
+        "shape": [
+          32
+        ],
+        "dtype": "float32",
+        "file": "param_router.feature_encoder.9.weight.bin",
+        "numel": 32,
+        "nbytes": 128
+      },
+      {
+        "name": "router.feature_encoder.9.bias",
+        "shape": [
+          32
+        ],
+        "dtype": "float32",
+        "file": "param_router.feature_encoder.9.bias.bin",
+        "numel": 32,
+        "nbytes": 128
+      },
+      {
+        "name": "router.depth_router.0.weight",
+        "shape": [
+          32,
+          32
+        ],
+        "dtype": "float32",
+        "file": "param_router.depth_router.0.weight.bin",
+        "numel": 1024,
+        "nbytes": 4096
+      },
+      {
+        "name": "router.depth_router.0.bias",
+        "shape": [
+          32
+        ],
+        "dtype": "float32",
+        "file": "param_router.depth_router.0.bias.bin",
+        "numel": 32,
+        "nbytes": 128
+      },
+      {
+        "name": "router.depth_router.1.weight",
+        "shape": [
+          32
+        ],
+        "dtype": "float32",
+        "file": "param_router.depth_router.1.weight.bin",
+        "numel": 32,
+        "nbytes": 128
+      },
+      {
+        "name": "router.depth_router.1.bias",
+        "shape": [
+          32
+        ],
+        "dtype": "float32",
+        "file": "param_router.depth_router.1.bias.bin",
+        "numel": 32,
+        "nbytes": 128
+      },
+      {
+        "name": "router.depth_router.3.weight",
+        "shape": [
+          1,
+          32
+        ],
+        "dtype": "float32",
+        "file": "param_router.depth_router.3.weight.bin",
+        "numel": 32,
+        "nbytes": 128
+      },
+      {
+        "name": "router.depth_router.3.bias",
+        "shape": [
+          1
+        ],
+        "dtype": "float32",
+        "file": "param_router.depth_router.3.bias.bin",
+        "numel": 1,
+        "nbytes": 4
+      },
+      {
+        "name": "router.width_router.0.weight",
+        "shape": [
+          32,
+          32
+        ],
+        "dtype": "float32",
+        "file": "param_router.width_router.0.weight.bin",
+        "numel": 1024,
+        "nbytes": 4096
+      },
+      {
+        "name": "router.width_router.0.bias",
+        "shape": [
+          32
+        ],
+        "dtype": "float32",
+        "file": "param_router.width_router.0.bias.bin",
+        "numel": 32,
+        "nbytes": 128
+      },
+      {
+        "name": "router.width_router.1.weight",
+        "shape": [
+          32
+        ],
+        "dtype": "float32",
+        "file": "param_router.width_router.1.weight.bin",
+        "numel": 32,
+        "nbytes": 128
+      },
+      {
+        "name": "router.width_router.1.bias",
+        "shape": [
+          32
+        ],
+        "dtype": "float32",
+        "file": "param_router.width_router.1.bias.bin",
+        "numel": 32,
+        "nbytes": 128
+      },
+      {
+        "name": "router.width_router.3.weight",
+        "shape": [
+          1,
+          32
+        ],
+        "dtype": "float32",
+        "file": "param_router.width_router.3.weight.bin",
+        "numel": 32,
+        "nbytes": 128
+      },
+      {
+        "name": "router.width_router.3.bias",
+        "shape": [
+          1
+        ],
+        "dtype": "float32",
+        "file": "param_router.width_router.3.bias.bin",
+        "numel": 1,
+        "nbytes": 4
+      },
+      {
+        "name": "router.path_router.0.weight",
+        "shape": [
+          32,
+          32
+        ],
+        "dtype": "float32",
+        "file": "param_router.path_router.0.weight.bin",
+        "numel": 1024,
+        "nbytes": 4096
+      },
+      {
+        "name": "router.path_router.0.bias",
+        "shape": [
+          32
+        ],
+        "dtype": "float32",
+        "file": "param_router.path_router.0.bias.bin",
+        "numel": 32,
+        "nbytes": 128
+      },
+      {
+        "name": "router.path_router.1.weight",
+        "shape": [
+          32
+        ],
+        "dtype": "float32",
+        "file": "param_router.path_router.1.weight.bin",
+        "numel": 32,
+        "nbytes": 128
+      },
+      {
+        "name": "router.path_router.1.bias",
+        "shape": [
+          32
+        ],
+        "dtype": "float32",
+        "file": "param_router.path_router.1.bias.bin",
+        "numel": 32,
+        "nbytes": 128
+      },
+      {
+        "name": "router.path_router.3.weight",
+        "shape": [
+          3,
+          32
+        ],
+        "dtype": "float32",
+        "file": "param_router.path_router.3.weight.bin",
+        "numel": 96,
+        "nbytes": 384
+      },
+      {
+        "name": "router.path_router.3.bias",
+        "shape": [
+          3
+        ],
+        "dtype": "float32",
+        "file": "param_router.path_router.3.bias.bin",
+        "numel": 3,
+        "nbytes": 12
+      },
+      {
+        "name": "router.expert_router.0.weight",
+        "shape": [
+          32,
+          32
+        ],
+        "dtype": "float32",
+        "file": "param_router.expert_router.0.weight.bin",
+        "numel": 1024,
+        "nbytes": 4096
+      },
+      {
+        "name": "router.expert_router.0.bias",
+        "shape": [
+          32
+        ],
+        "dtype": "float32",
+        "file": "param_router.expert_router.0.bias.bin",
+        "numel": 32,
+        "nbytes": 128
+      },
+      {
+        "name": "router.expert_router.1.weight",
+        "shape": [
+          32
+        ],
+        "dtype": "float32",
+        "file": "param_router.expert_router.1.weight.bin",
+        "numel": 32,
+        "nbytes": 128
+      },
+      {
+        "name": "router.expert_router.1.bias",
+        "shape": [
+          32
+        ],
+        "dtype": "float32",
+        "file": "param_router.expert_router.1.bias.bin",
+        "numel": 32,
+        "nbytes": 128
+      },
+      {
+        "name": "router.expert_router.3.weight",
+        "shape": [
+          1,
+          32
+        ],
+        "dtype": "float32",
+        "file": "param_router.expert_router.3.weight.bin",
+        "numel": 32,
+        "nbytes": 128
+      },
+      {
+        "name": "router.expert_router.3.bias",
+        "shape": [
+          1
+        ],
+        "dtype": "float32",
+        "file": "param_router.expert_router.3.bias.bin",
+        "numel": 1,
+        "nbytes": 4
+      },
+      {
+        "name": "router.complexity_estimator.0.weight",
+        "shape": [
+          32,
+          32
+        ],
+        "dtype": "float32",
+        "file": "param_router.complexity_estimator.0.weight.bin",
+        "numel": 1024,
+        "nbytes": 4096
+      },
+      {
+        "name": "router.complexity_estimator.0.bias",
+        "shape": [
+          32
+        ],
+        "dtype": "float32",
+        "file": "param_router.complexity_estimator.0.bias.bin",
+        "numel": 32,
+        "nbytes": 128
+      },
+      {
+        "name": "router.complexity_estimator.1.weight",
+        "shape": [
+          32
+        ],
+        "dtype": "float32",
+        "file": "param_router.complexity_estimator.1.weight.bin",
+        "numel": 32,
+        "nbytes": 128
+      },
+      {
+        "name": "router.complexity_estimator.1.bias",
+        "shape": [
+          32
+        ],
+        "dtype": "float32",
+        "file": "param_router.complexity_estimator.1.bias.bin",
+        "numel": 32,
+        "nbytes": 128
+      },
+      {
+        "name": "router.complexity_estimator.3.weight",
+        "shape": [
+          1,
+          32
+        ],
+        "dtype": "float32",
+        "file": "param_router.complexity_estimator.3.weight.bin",
+        "numel": 32,
+        "nbytes": 128
+      },
+      {
+        "name": "router.complexity_estimator.3.bias",
+        "shape": [
+          1
+        ],
+        "dtype": "float32",
+        "file": "param_router.complexity_estimator.3.bias.bin",
+        "numel": 1,
+        "nbytes": 4
+      },
+      {
+        "name": "router.uncertainty_estimator.0.weight",
+        "shape": [
+          32,
+          32
+        ],
+        "dtype": "float32",
+        "file": "param_router.uncertainty_estimator.0.weight.bin",
+        "numel": 1024,
+        "nbytes": 4096
+      },
+      {
+        "name": "router.uncertainty_estimator.0.bias",
+        "shape": [
+          32
+        ],
+        "dtype": "float32",
+        "file": "param_router.uncertainty_estimator.0.bias.bin",
+        "numel": 32,
+        "nbytes": 128
+      },
+      {
+        "name": "router.uncertainty_estimator.1.weight",
+        "shape": [
+          32
+        ],
+        "dtype": "float32",
+        "file": "param_router.uncertainty_estimator.1.weight.bin",
+        "numel": 32,
+        "nbytes": 128
+      },
+      {
+        "name": "router.uncertainty_estimator.1.bias",
+        "shape": [
+          32
+        ],
+        "dtype": "float32",
+        "file": "param_router.uncertainty_estimator.1.bias.bin",
+        "numel": 32,
+        "nbytes": 128
+      },
+      {
+        "name": "router.uncertainty_estimator.3.weight",
+        "shape": [
+          1,
+          32
+        ],
+        "dtype": "float32",
+        "file": "param_router.uncertainty_estimator.3.weight.bin",
+        "numel": 32,
+        "nbytes": 128
+      },
+      {
+        "name": "router.uncertainty_estimator.3.bias",
+        "shape": [
+          1
+        ],
+        "dtype": "float32",
+        "file": "param_router.uncertainty_estimator.3.bias.bin",
+        "numel": 1,
+        "nbytes": 4
+      }
+    ],
+    "expected": [
+      {
+        "name": "depth_logits",
+        "shape": [
+          1,
+          8,
+          1
+        ],
+        "dtype": "float32",
+        "file": "expected_depth_logits.bin",
+        "numel": 8,
+        "nbytes": 32
+      },
+      {
+        "name": "depth_probs",
+        "shape": [
+          1,
+          8,
+          1
+        ],
+        "dtype": "float32",
+        "file": "expected_depth_probs.bin",
+        "numel": 8,
+        "nbytes": 32
+      },
+      {
+        "name": "depth_mask",
+        "shape": [
+          1,
+          8,
+          1
+        ],
+        "dtype": "float32",
+        "file": "expected_depth_mask.bin",
+        "numel": 8,
+        "nbytes": 32
+      },
+      {
+        "name": "width_logits",
+        "shape": [
+          1,
+          8,
+          1
+        ],
+        "dtype": "float32",
+        "file": "expected_width_logits.bin",
+        "numel": 8,
+        "nbytes": 32
+      },
+      {
+        "name": "width_probs",
+        "shape": [
+          1,
+          8,
+          1
+        ],
+        "dtype": "float32",
+        "file": "expected_width_probs.bin",
+        "numel": 8,
+        "nbytes": 32
+      },
+      {
+        "name": "width_idx",
+        "shape": [
+          1,
+          8
+        ],
+        "dtype": "int64",
+        "file": "expected_width_idx.bin",
+        "numel": 8,
+        "nbytes": 64
+      },
+      {
+        "name": "path_logits",
+        "shape": [
+          1,
+          8,
+          3
+        ],
+        "dtype": "float32",
+        "file": "expected_path_logits.bin",
+        "numel": 24,
+        "nbytes": 96
+      },
+      {
+        "name": "path_probs",
+        "shape": [
+          1,
+          8,
+          3
+        ],
+        "dtype": "float32",
+        "file": "expected_path_probs.bin",
+        "numel": 24,
+        "nbytes": 96
+      },
+      {
+        "name": "expert_logits",
+        "shape": [
+          1,
+          8,
+          1
+        ],
+        "dtype": "float32",
+        "file": "expected_expert_logits.bin",
+        "numel": 8,
+        "nbytes": 32
+      },
+      {
+        "name": "expert_probs",
+        "shape": [
+          1,
+          8,
+          1
+        ],
+        "dtype": "float32",
+        "file": "expected_expert_probs.bin",
+        "numel": 8,
+        "nbytes": 32
+      },
+      {
+        "name": "expert_indices",
+        "shape": [
+          1,
+          8,
+          1
+        ],
+        "dtype": "int64",
+        "file": "expected_expert_indices.bin",
+        "numel": 8,
+        "nbytes": 64
+      },
+      {
+        "name": "expert_weights",
+        "shape": [
+          1,
+          8,
+          1
+        ],
+        "dtype": "float32",
+        "file": "expected_expert_weights.bin",
+        "numel": 8,
+        "nbytes": 32
+      },
+      {
+        "name": "complexity",
+        "shape": [
+          1,
+          8,
+          1
+        ],
+        "dtype": "float32",
+        "file": "expected_complexity.bin",
+        "numel": 8,
+        "nbytes": 32
+      },
+      {
+        "name": "uncertainty",
+        "shape": [
+          1,
+          8,
+          1
+        ],
+        "dtype": "float32",
+        "file": "expected_uncertainty.bin",
+        "numel": 8,
+        "nbytes": 32
+      }
+    ]
+  }
+}

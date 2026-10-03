@@ -1,0 +1,172 @@
+{
+  "component": "06_attention",
+  "seed": 42,
+  "pytorch_version": "2.14.1+cpu",
+  "config": {
+    "hidden_size": 8,
+    "num_heads": 1,
+    "head_dim": 8,
+    "window_size": 128,
+    "causal": true
+  },
+  "tolerance": {
+    "max_abs_error": 1e-05,
+    "max_rel_error": 0.0001
+  },
+  "tensors": {
+    "inputs": [
+      {
+        "name": "x",
+        "shape": [
+          1,
+          8,
+          8
+        ],
+        "dtype": "float32",
+        "file": "input_x.bin",
+        "numel": 64,
+        "nbytes": 256
+      }
+    ],
+    "params": [
+      {
+        "name": "q_proj_weight",
+        "shape": [
+          8,
+          8
+        ],
+        "dtype": "float32",
+        "file": "param_q_proj_weight.bin",
+        "numel": 64,
+        "nbytes": 256
+      },
+      {
+        "name": "q_proj_bias",
+        "shape": [
+          8
+        ],
+        "dtype": "float32",
+        "file": "param_q_proj_bias.bin",
+        "numel": 8,
+        "nbytes": 32
+      },
+      {
+        "name": "k_proj_weight",
+        "shape": [
+          8,
+          8
+        ],
+        "dtype": "float32",
+        "file": "param_k_proj_weight.bin",
+        "numel": 64,
+        "nbytes": 256
+      },
+      {
+        "name": "k_proj_bias",
+        "shape": [
+          8
+        ],
+        "dtype": "float32",
+        "file": "param_k_proj_bias.bin",
+        "numel": 8,
+        "nbytes": 32
+      },
+      {
+        "name": "v_proj_weight",
+        "shape": [
+          8,
+          8
+        ],
+        "dtype": "float32",
+        "file": "param_v_proj_weight.bin",
+        "numel": 64,
+        "nbytes": 256
+      },
+      {
+        "name": "v_proj_bias",
+        "shape": [
+          8
+        ],
+        "dtype": "float32",
+        "file": "param_v_proj_bias.bin",
+        "numel": 8,
+        "nbytes": 32
+      },
+      {
+        "name": "out_proj_weight",
+        "shape": [
+          8,
+          8
+        ],
+        "dtype": "float32",
+        "file": "param_out_proj_weight.bin",
+        "numel": 64,
+        "nbytes": 256
+      },
+      {
+        "name": "out_proj_bias",
+        "shape": [
+          8
+        ],
+        "dtype": "float32",
+        "file": "param_out_proj_bias.bin",
+        "numel": 8,
+        "nbytes": 32
+      },
+      {
+        "name": "ln_q_weight",
+        "shape": [
+          8
+        ],
+        "dtype": "float32",
+        "file": "param_ln_q_weight.bin",
+        "numel": 8,
+        "nbytes": 32
+      },
+      {
+        "name": "ln_q_bias",
+        "shape": [
+          8
+        ],
+        "dtype": "float32",
+        "file": "param_ln_q_bias.bin",
+        "numel": 8,
+        "nbytes": 32
+      },
+      {
+        "name": "ln_k_weight",
+        "shape": [
+          8
+        ],
+        "dtype": "float32",
+        "file": "param_ln_k_weight.bin",
+        "numel": 8,
+        "nbytes": 32
+      },
+      {
+        "name": "ln_k_bias",
+        "shape": [
+          8
+        ],
+        "dtype": "float32",
+        "file": "param_ln_k_bias.bin",
+        "numel": 8,
+        "nbytes": 32
+      }
+    ],
+    "expected": [
+      {
+        "name": "y",
+        "shape": [
+          1,
+          8,
+          8
+        ],
+        "dtype": "float32",
+        "file": "expected_y.bin",
+        "numel": 64,
+        "nbytes": 256
+      }
+    ]
+  }
+}

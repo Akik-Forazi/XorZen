@@ -1,0 +1,129 @@
+{
+  "component": "08_sliced_ffn",
+  "seed": 42,
+  "pytorch_version": "2.14.1+cpu",
+  "config": {
+    "hidden_size": 8,
+    "max_width": 32,
+    "activation": "gelu",
+    "width_used": 32
+  },
+  "tolerance": {
+    "max_abs_error": 0.001,
+    "max_rel_error": 0.001
+  },
+  "tensors": {
+    "inputs": [
+      {
+        "name": "x",
+        "shape": [
+          1,
+          8,
+          8
+        ],
+        "dtype": "float32",
+        "file": "input_x.bin",
+        "numel": 64,
+        "nbytes": 256
+      }
+    ],
+    "params": [
+      {
+        "name": "fc1_weight",
+        "shape": [
+          32,
+          8
+        ],
+        "dtype": "float32",
+        "file": "param_fc1_weight.bin",
+        "numel": 256,
+        "nbytes": 1024
+      },
+      {
+        "name": "fc1_bias",
+        "shape": [
+          32
+        ],
+        "dtype": "float32",
+        "file": "param_fc1_bias.bin",
+        "numel": 32,
+        "nbytes": 128
+      },
+      {
+        "name": "fc2_weight",
+        "shape": [
+          8,
+          32
+        ],
+        "dtype": "float32",
+        "file": "param_fc2_weight.bin",
+        "numel": 256,
+        "nbytes": 1024
+      },
+      {
+        "name": "fc2_bias",
+        "shape": [
+          8
+        ],
+        "dtype": "float32",
+        "file": "param_fc2_bias.bin",
+        "numel": 8,
+        "nbytes": 32
+      },
+      {
+        "name": "ln_input_weight",
+        "shape": [
+          8
+        ],
+        "dtype": "float32",
+        "file": "param_ln_input_weight.bin",
+        "numel": 8,
+        "nbytes": 32
+      },
+      {
+        "name": "ln_input_bias",
+        "shape": [
+          8
+        ],
+        "dtype": "float32",
+        "file": "param_ln_input_bias.bin",
+        "numel": 8,
+        "nbytes": 32
+      },
+      {
+        "name": "ln_hidden_weight",
+        "shape": [
+          32
+        ],
+        "dtype": "float32",
+        "file": "param_ln_hidden_weight.bin",
+        "numel": 32,
+        "nbytes": 128
+      },
+      {
+        "name": "ln_hidden_bias",
+        "shape": [
+          32
+        ],
+        "dtype": "float32",
+        "file": "param_ln_hidden_bias.bin",
+        "numel": 32,
+        "nbytes": 128
+      }
+    ],
+    "expected": [
+      {
+        "name": "y",
+        "shape": [
+          1,
+          8,
+          8
+        ],
+        "dtype": "float32",
+        "file": "expected_y.bin",
+        "numel": 64,
+        "nbytes": 256
+      }
+    ]
+  }
+}

@@ -1,0 +1,224 @@
+{
+  "component": "14_ssm_pathway_full",
+  "seed": 42,
+  "pytorch_version": "2.14.1+cpu",
+  "config": {
+    "hidden_size": 8,
+    "state_dim": 16,
+    "kernel_size": 3,
+    "use_conv": true
+  },
+  "tolerance": {
+    "max_abs_error": 1e-05,
+    "max_rel_error": 0.0001
+  },
+  "tensors": {
+    "inputs": [
+      {
+        "name": "x",
+        "shape": [
+          1,
+          8,
+          8
+        ],
+        "dtype": "float32",
+        "file": "input_x.bin",
+        "numel": 64,
+        "nbytes": 256
+      }
+    ],
+    "params": [
+      {
+        "name": "ssm_pathway.A_log",
+        "shape": [
+          16
+        ],
+        "dtype": "float32",
+        "file": "param_ssm_pathway.A_log.bin",
+        "numel": 16,
+        "nbytes": 64
+      },
+      {
+        "name": "ssm_pathway.dt_proj.weight",
+        "shape": [
+          16,
+          8
+        ],
+        "dtype": "float32",
+        "file": "param_ssm_pathway.dt_proj.weight.bin",
+        "numel": 128,
+        "nbytes": 512
+      },
+      {
+        "name": "ssm_pathway.dt_proj.bias",
+        "shape": [
+          16
+        ],
+        "dtype": "float32",
+        "file": "param_ssm_pathway.dt_proj.bias.bin",
+        "numel": 16,
+        "nbytes": 64
+      },
+      {
+        "name": "ssm_pathway.B_proj.weight",
+        "shape": [
+          16,
+          8
+        ],
+        "dtype": "float32",
+        "file": "param_ssm_pathway.B_proj.weight.bin",
+        "numel": 128,
+        "nbytes": 512
+      },
+      {
+        "name": "ssm_pathway.B_proj.bias",
+        "shape": [
+          16
+        ],
+        "dtype": "float32",
+        "file": "param_ssm_pathway.B_proj.bias.bin",
+        "numel": 16,
+        "nbytes": 64
+      },
+      {
+        "name": "ssm_pathway.C_proj.weight",
+        "shape": [
+          16,
+          8
+        ],
+        "dtype": "float32",
+        "file": "param_ssm_pathway.C_proj.weight.bin",
+        "numel": 128,
+        "nbytes": 512
+      },
+      {
+        "name": "ssm_pathway.C_proj.bias",
+        "shape": [
+          16
+        ],
+        "dtype": "float32",
+        "file": "param_ssm_pathway.C_proj.bias.bin",
+        "numel": 16,
+        "nbytes": 64
+      },
+      {
+        "name": "ssm_pathway.D_proj.weight",
+        "shape": [
+          8,
+          16
+        ],
+        "dtype": "float32",
+        "file": "param_ssm_pathway.D_proj.weight.bin",
+        "numel": 128,
+        "nbytes": 512
+      },
+      {
+        "name": "ssm_pathway.D_proj.bias",
+        "shape": [
+          8
+        ],
+        "dtype": "float32",
+        "file": "param_ssm_pathway.D_proj.bias.bin",
+        "numel": 8,
+        "nbytes": 32
+      },
+      {
+        "name": "ssm_pathway.conv.weight",
+        "shape": [
+          8,
+          1,
+          3
+        ],
+        "dtype": "float32",
+        "file": "param_ssm_pathway.conv.weight.bin",
+        "numel": 24,
+        "nbytes": 96
+      },
+      {
+        "name": "ssm_pathway.conv.bias",
+        "shape": [
+          8
+        ],
+        "dtype": "float32",
+        "file": "param_ssm_pathway.conv.bias.bin",
+        "numel": 8,
+        "nbytes": 32
+      },
+      {
+        "name": "ssm_pathway.gate_proj.weight",
+        "shape": [
+          16,
+          8
+        ],
+        "dtype": "float32",
+        "file": "param_ssm_pathway.gate_proj.weight.bin",
+        "numel": 128,
+        "nbytes": 512
+      },
+      {
+        "name": "ssm_pathway.gate_proj.bias",
+        "shape": [
+          16
+        ],
+        "dtype": "float32",
+        "file": "param_ssm_pathway.gate_proj.bias.bin",
+        "numel": 16,
+        "nbytes": 64
+      },
+      {
+        "name": "ssm_pathway.ln_input.weight",
+        "shape": [
+          8
+        ],
+        "dtype": "float32",
+        "file": "param_ssm_pathway.ln_input.weight.bin",
+        "numel": 8,
+        "nbytes": 32
+      },
+      {
+        "name": "ssm_pathway.ln_input.bias",
+        "shape": [
+          8
+        ],
+        "dtype": "float32",
+        "file": "param_ssm_pathway.ln_input.bias.bin",
+        "numel": 8,
+        "nbytes": 32
+      },
+      {
+        "name": "ssm_pathway.ln_state.weight",
+        "shape": [
+          16
+        ],
+        "dtype": "float32",
+        "file": "param_ssm_pathway.ln_state.weight.bin",
+        "numel": 16,
+        "nbytes": 64
+      },
+      {
+        "name": "ssm_pathway.ln_state.bias",
+        "shape": [
+          16
+        ],
+        "dtype": "float32",
+        "file": "param_ssm_pathway.ln_state.bias.bin",
+        "numel": 16,
+        "nbytes": 64
+      }
+    ],
+    "expected": [
+      {
+        "name": "y",
+        "shape": [
+          1,
+          8,
+          8
+        ],
+        "dtype": "float32",
+        "file": "expected_y.bin",
+        "numel": 64,
+        "nbytes": 256
+      }
+    ]
+  }
+}

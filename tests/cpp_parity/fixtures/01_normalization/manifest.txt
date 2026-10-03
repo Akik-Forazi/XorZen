@@ -1,0 +1,10 @@
+component 01_normalization
+config eps 1e-05
+config normalized_shape 8
+tolerance max_abs 1e-06
+tolerance max_rel 1e-05
+tensor input x float32 input_x.bin 1,8,8
+tensor param weight float32 param_weight.bin 8
+tensor param bias float32 param_bias.bin 8
+tensor expected y float32 expected_y.bin 1,8,8
+end
