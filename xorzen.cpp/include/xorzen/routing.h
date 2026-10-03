@@ -23,15 +23,17 @@ struct RoutingDecision {
     torch::Tensor expert_weights;
     torch::Tensor complexity;
     torch::Tensor uncertainty;
-    torch::Tensor character_probs; // [B, T, max_characters]
+    // NOTE: character_probs removed — Python AdaptiveRouter does not have character_router.
     std::unordered_map<std::string, torch::Tensor> auxiliary;
 };
 
+// Auxiliary loss functions — mirror Python (routing.py:38-76, load_balance.py:151-177)
 torch::Tensor load_balance_loss(const torch::Tensor& expert_probs,
                                 const torch::Tensor& expert_indices,
                                 int64_t num_experts);
 torch::Tensor router_z_loss(const torch::Tensor& router_logits);
 torch::Tensor path_diversity_loss(const torch::Tensor& path_probs);
+torch::Tensor width_diversity_loss(const torch::Tensor& width_probs);
 
 struct AdaptiveRouterImpl : torch::nn::Module {
     ModelConfig config;
@@ -47,12 +49,22 @@ struct AdaptiveRouterImpl : torch::nn::Module {
     bool temperature_annealing;
     int64_t training_step = 0;
 
+    // Cost-aware routing (Python routing.py:546-588)
+    bool cost_aware_routing;
+    double compute_budget;
+    double eval_routing_noise;
+    // Auxiliary loss weights (Python routing.py:649-658, 1689)
+    double lb_loss_weight;
+    double z_loss_weight;
+    double path_div_weight;
+    double width_div_weight;
+
     torch::nn::Sequential feature_encoder{nullptr};
     torch::nn::Sequential depth_router{nullptr};
     torch::nn::Sequential width_router{nullptr};
     torch::nn::Sequential path_router{nullptr};
     torch::nn::Sequential expert_router{nullptr};
-    torch::nn::Sequential character_router{nullptr};
+    // NOTE: character_router removed — Python does not have it.
     torch::nn::Sequential complexity_estimator{nullptr};
     torch::nn::Sequential uncertainty_estimator{nullptr};
     torch::Tensor width_values;
@@ -67,6 +79,11 @@ struct AdaptiveRouterImpl : torch::nn::Module {
 private:
     void build_network();
     void init_weights();
+    bool getattr_cost_aware(const ModelConfig& c) const;
+    double getattr_compute_budget(const ModelConfig& c) const;
+    torch::Tensor eval_gumbel_noise(torch::IntArrayRef shape,
+                                    const torch::TensorOptions& opts,
+                                    int64_t axis_id) const;
     std::pair<torch::Tensor, torch::Tensor> route_depth(const torch::Tensor& logits,
                                                         const torch::Tensor& complexity,
                                                         double temp,
@@ -89,6 +106,9 @@ TORCH_MODULE(AdaptiveRouter);
 struct RoutingRegularizerImpl : torch::nn::Module {
     ModelConfig config;
     explicit RoutingRegularizerImpl(ModelConfig config) : config(std::move(config)) {}
+    // Mirror Python routing.py:1691-1694: returns ONLY uncertainty_loss.
+    // The path_div / load_balance / z_loss / width_div are summed separately
+    // in the model's forward (NOT here). This avoids double-counting.
     torch::Tensor forward(const RoutingDecision& decision);
 };
 TORCH_MODULE(RoutingRegularizer);

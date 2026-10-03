@@ -406,30 +406,85 @@ void run_router(const Manifest& m, const std::string& fd, const std::string& od)
 
     double temp = config_double(m, "temperature", 1.0);
 
-    // === C++ route_depth (routing.cpp:176-197) ===
-    auto depth_bias = torch::linspace(0, 1, max_depth, depth_logits.options()).view({1, 1, max_depth});
-    auto depth_scaled = (depth_logits + complexity * depth_bias * 2.0) / std::max(temp, 1e-8);
-    auto depth_probs = torch::sigmoid(depth_scaled);
-    auto depth_hard = (depth_probs > 0.5).to(depth_probs.dtype());
-    auto depth_mask = depth_hard;
+    // ===== COST-AWARE ROUTING MODULATION (mirror Python routing.py:546-588) =====
+    bool cost_aware = config_str(m, "cost_aware_routing", "1") == "1";
+    double budget = config_double(m, "compute_budget", 1.0);
+    if (cost_aware) {
+        budget = std::max(0.05, std::min(1.0, budget));
+        double sp = 1.0 - budget;  // sparsity_pressure
+        // depth_shift: [B, T]
+        auto depth_shift = -sp * 4.0 * (1.0 - complexity.squeeze(-1));
+        // width_bias_axis: [num_widths]
+        auto width_bias_axis = torch::linspace(sp * 2.0, -sp * 2.0, num_widths, width_logits.options());
+        width_logits = width_logits + width_bias_axis.view({1, 1, -1});
+        // path_bias_axis: [num_paths]
+        auto path_bias_axis = torch::linspace(sp * 1.5, -sp * 0.5, num_paths, path_logits.options());
+        path_logits = path_logits + path_bias_axis.view({1, 1, -1});
+        // depth_layer_bias: [max_depth]
+        auto depth_layer_bias = torch::linspace(0.0, -sp * 3.0, max_depth, depth_logits.options());
+        depth_logits = depth_logits + depth_layer_bias.view({1, 1, -1}) + depth_shift.unsqueeze(-1);
+    }
 
-    // === C++ route_width (routing.cpp:199-209) ===
-    auto width_bias = torch::linspace(-1, 1, num_widths, width_logits.options()).view({1, 1, num_widths});
-    auto width_scaled = (width_logits + complexity * width_bias * 3.0) / std::max(temp, 1e-8);
-    auto width_probs = torch::softmax(width_scaled, -1);
-    auto width_idx = std::get<1>(width_probs.max(-1));
+    // ===== EVAL GUMBEL NOISE (mirror Python routing.py:442-475) =====
+    // Per-axis fixed seed (1337 + axis_id), generated on CPU.
+    // eval_routing_noise default 0.15.
+    double eval_noise_mag = config_double(m, "eval_routing_noise", 0.15);
+    auto make_eval_noise = [&](torch::IntArrayRef shape, const torch::TensorOptions& opts,
+                               int64_t axis_id) -> Tensor {
+        if (eval_noise_mag <= 0.0) return torch::zeros(shape, opts);
+        at::Generator gen = at::detail::createCPUGenerator(1337 + axis_id);
+        auto u = torch::rand(shape, gen).to(opts.dtype());
+        auto g = -torch::log(-torch::log(u.clamp_min(1e-10)) + 1e-10);
+        return eval_noise_mag * g.to(opts);
+    };
 
-    // === C++ route_path (routing.cpp:211-219) — eval: softmax ===
-    auto path_probs = torch::softmax(path_logits / std::max(temp, 1e-8), -1);
+    // === route_depth (Python routing.py:662-725) — eval branch with Gumbel noise ===
+    Tensor depth_probs, depth_mask;
+    {
+        auto depth_bias = torch::linspace(0, 1, max_depth, depth_logits.options()).view({1, 1, max_depth});
+        auto depth_scaled = (depth_logits + complexity * depth_bias * 2.0) / std::max(temp, 1e-8);
+        auto noise = make_eval_noise(depth_scaled.sizes(), depth_scaled.options(), /*axis_id=*/0);
+        auto probs = torch::sigmoid(depth_scaled + noise);
+        auto mask = (probs > 0.5).to(probs.dtype());
+        // min_depth override (tiny_23k has min_depth=1)
+        int64_t min_depth = 1;
+        auto forced = torch::zeros_like(mask);
+        forced.slice(-1, 0, min_depth).fill_(1.0);
+        mask = torch::where(forced.to(torch::kBool), torch::ones_like(mask), mask);
+        depth_probs = probs;
+        depth_mask = mask;
+    }
 
-    // === C++ route_experts (routing.cpp:221-244) ===
+    // === route_width (Python routing.py:727-777) — eval with Gumbel noise ===
+    Tensor width_probs, width_idx;
+    {
+        auto width_bias = torch::linspace(-1, 1, num_widths, width_logits.options()).view({1, 1, num_widths});
+        auto width_scaled = (width_logits + complexity * width_bias * 3.0) / std::max(temp, 1e-8);
+        auto noise = make_eval_noise(width_scaled.sizes(), width_scaled.options(), /*axis_id=*/1);
+        width_probs = torch::softmax(width_scaled + noise, -1);
+        width_idx = std::get<1>(width_probs.detach().max(-1));
+    }
+
+    // === route_path (Python routing.py:779-830) — eval with Gumbel noise ===
+    Tensor path_probs;
+    {
+        auto path_scaled = path_logits / std::max(temp, 1e-8);
+        auto noise = make_eval_noise(path_scaled.sizes(), path_scaled.options(), /*axis_id=*/2);
+        path_probs = torch::softmax(path_scaled + noise, -1);
+    }
+
+    // === route_experts (Python routing.py:832-902) — eval with Gumbel noise ===
     int64_t N = B * T;
     auto flat_logits = expert_logits.view({N, num_experts});
-    auto flat_probs = torch::softmax(flat_logits / std::max(temp, 1e-8), -1);
-    auto top = torch::topk(flat_probs, top_k, -1);
-    auto ew = std::get<0>(top);
-    auto ei = std::get<1>(top);
-    ew = ew / (ew.sum(-1, true) + 1e-12);
+    Tensor ew, ei;
+    {
+        auto noise = make_eval_noise(flat_logits.sizes(), flat_logits.options(), /*axis_id=*/3);
+        auto probs = torch::softmax(flat_logits + noise, -1);
+        auto top = torch::topk(probs, top_k, -1);
+        ew = std::get<0>(top);
+        ei = std::get<1>(top);
+        ew = ew / (ew.sum(-1, true) + 1e-12);
+    }
     auto expert_probs = torch::softmax(expert_logits / std::max(temp, 1e-8), -1);
 
     write_outputs(od, {
@@ -632,6 +687,7 @@ int main(int argc, char** argv) {
         else if (component == "12_lm_head")              run_lm_head(m, fixture_dir, out_dir);
         else if (component == "13_embeddings")           run_embeddings(m, fixture_dir, out_dir);
         else if (component == "14_ssm_pathway_full")     run_ssm_pathway_full(m, fixture_dir, out_dir);
+        else if (component.rfind("14_ssm_pathway_T", 0) == 0) run_ssm_pathway_full(m, fixture_dir, out_dir);
         else {
             std::cerr << "unknown component: " << component << "\n";
             return 3;

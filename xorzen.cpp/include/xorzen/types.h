@@ -155,6 +155,19 @@ struct ModelConfig {
     float router_temperature = 1.0f;
     bool router_temperature_annealing = true;
     float router_dropout = 0.1f;
+
+    // Cost-aware routing (Python routing.py:546-588) — was missing in C++.
+    bool cost_aware_routing = true;
+    float compute_budget = 1.0f;
+    // Eval-mode Gumbel noise (Python routing.py:442-475, default 0.15).
+    float eval_routing_noise = 0.15f;
+
+    // Auxiliary loss weights (Python routing.py:649-658, 1689)
+    float routing_loss_weight = 0.01f;   // uncertainty weight (Python default 0.01)
+    float lb_loss_weight = 0.0001f;       // load-balance (Switch formula) weight
+    float z_loss_weight = 0.0001f;        // router z-loss weight
+    float path_div_weight = 0.2f;         // path diversity (entropy) weight
+    float width_div_weight = 0.1f;        // width diversity (entropy) weight
     
     // Training configuration
     float dropout = 0.1f;
