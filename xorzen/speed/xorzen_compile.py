@@ -120,28 +120,23 @@ def compile(
     # ── Pre-compilation patches ──────────────────────────────────────
     # Patch known compilation-unfriendly patterns in xorzen before compiling.
 
-    # 1. Disable .item() calls in MoE during training (already done in
-    #    commit d14adc1, but double-check)
+    # 1. Try to load native C++ kernels (AVX2 vectorized MoE dispatch, SSM scan,
+    #    fused RMSNorm/GELU/SwiGLU). These compile at import time via
+    #    torch.utils.cpp_extension.load and replace Python hot-path loops
+    #    with single C++ calls.
+    native_ok = False
     try:
-        from xorzen.model.components.routing import AdaptiveRouter
-        if hasattr(AdaptiveRouter, '_update_expert_usage'):
-            import inspect
-            src = inspect.getsource(AdaptiveRouter._update_expert_usage)
-            if 'idx_cpu' not in src and 'torch.ones_like(idx,' in src:
-                # Old buggy version still installed — patch it at runtime
-                def _noop_update(self, *args, **kwargs):
-                    pass
-                AdaptiveRouter._update_expert_usage = _noop_update
-    except Exception:
-        pass
-
-    # 2. Disable expert_stats update during training in MoE (already done
-    #    in commit d14adc1 for the Python version, but ensure it's active)
-    try:
-        from xorzen.model.zmoe import ShardedExpertFabric
-        # The fix should already be in the installed version
-    except Exception:
-        pass
+        from .native_kernels import native_available, auto_patch_model, get_native_status
+        if native_available:
+            print("[xorzen.compile] Native C++ kernels available — patching hot paths")
+            auto_patch_model(model)
+            native_ok = True
+        else:
+            status = get_native_status()
+            print(f"[xorzen.compile] Native C++ kernels not available: {status['error']}")
+            print("[xorzen.compile] Falling back to torch.compile only (still fast, just not C++-fast)")
+    except Exception as e:
+        print(f"[xorzen.compile] Native kernel loading skipped: {e}")
 
     # ── Compile ──────────────────────────────────────────────────────
     compile_kwargs = {
