@@ -532,6 +532,7 @@ void run_ssm_pathway_full(const Manifest& m, const std::string& fd, const std::s
     int64_t state = config_int(m, "state_dim");
     int64_t kernel = config_int(m, "kernel_size");
 
+    // Mirror the FIXED SSMPathwayImpl::forward (hass_block.cpp).
     auto xn = layer_norm(x, P["ssm_pathway.ln_input.weight"],
                             P["ssm_pathway.ln_input.bias"], 1e-5);
 
@@ -540,11 +541,13 @@ void run_ssm_pathway_full(const Manifest& m, const std::string& fd, const std::s
         auto conv_w = P["ssm_pathway.conv.weight"];
         auto conv_b = P["ssm_pathway.conv.bias"];
         auto x_t = xn.transpose(1, 2);  // [B, H, T]
-        // C++ uses padding=kernel/2 (CENTER padding, NOT causal)
+        // CAUSAL: padding = kernel_size - 1, then truncate to T
         auto opts = torch::nn::functional::Conv1dFuncOptions()
-                        .padding(kernel / 2).groups(static_cast<int64_t>(x.size(-1)));
+                        .padding(kernel - 1).groups(static_cast<int64_t>(x.size(-1)));
         auto y_t = torch::nn::functional::conv1d(x_t, conv_w,
             torch::nn::functional::Conv1dFuncOptions(opts).bias(conv_b));
+        // Truncate to T (drop right-side padding)
+        y_t = y_t.slice(/*dim=*/2, /*start=*/0, /*end=*/T);
         xn = xn + y_t.transpose(1, 2);
     }
     auto gate_pair = make_linear(P, "ssm_pathway.gate_proj.weight",
@@ -561,31 +564,42 @@ void run_ssm_pathway_full(const Manifest& m, const std::string& fd, const std::s
     auto C  = C_proj.forward(xn);
     auto dt = torch::softplus(dt_proj.forward(xn));
     auto a  = -torch::exp(A_log);
-    auto Ab = torch::exp(dt * a.view({1, 1, state}));
 
-    // Serial scan with C applied INSIDE (C++ behavior)
+    // ZOH discretization of BOTH A and B (mirror Python discretize_zoh).
+    auto a_b = a.view({1, 1, -1});
+    auto z = dt * a_b;
+    auto Ab = torch::exp(z);
+    auto small = z.abs() < 1e-4;
+    auto safe_z = torch::where(small, torch::ones_like(z), z);
+    auto exact = (Ab - 1.0) / safe_z;
+    auto taylor = 1.0 + z / 2.0 + (z * z) / 6.0;
+    auto B_bar_div = torch::where(small, taylor, exact);
+    auto Bb = B_bar_div * dt * Bv;
+
+    // Serial scan returning RAW h_t (NOT C*h). C applied after ln_state below.
     int64_t N = state;
-    auto yc = torch::empty({B, T, N}, Ab.options());
+    auto states = torch::empty({B, T, N}, Ab.options());
     auto Abc = Ab.to(torch::kCPU).contiguous();
-    auto Bvc = Bv.to(torch::kCPU).contiguous();
-    auto Cc  = C.to(torch::kCPU).contiguous();
-    float* p_y = yc.data_ptr<float>();
+    auto Bbc = Bb.to(torch::kCPU).contiguous();
+    auto sc  = states.to(torch::kCPU).contiguous();
+    float* p_s = sc.data_ptr<float>();
     const float* p_Ab = Abc.data_ptr<float>();
-    const float* p_Bv = Bvc.data_ptr<float>();
-    const float* p_C  = Cc.data_ptr<float>();
+    const float* p_Bb = Bbc.data_ptr<float>();
     for (int64_t b = 0; b < B; ++b) {
         std::vector<float> h(N, 0.0f);
         for (int64_t t = 0; t < T; ++t) {
             int64_t off = (b * T + t) * N;
             for (int64_t n = 0; n < N; ++n) {
-                h[n] = p_Ab[off + n] * h[n] + p_Bv[off + n];
-                p_y[off + n] = p_C[off + n] * h[n];
+                h[n] = p_Ab[off + n] * h[n] + p_Bb[off + n];
+                p_s[off + n] = h[n];  // raw state
             }
         }
     }
-    auto states_ln = layer_norm(yc, P["ssm_pathway.ln_state.weight"],
-                                   P["ssm_pathway.ln_state.bias"], 1e-5);
-    auto out = D_proj.forward(states_ln) * gate;
+    // Python order: states_ln = ln_state(states); ssm_output = C * states_ln; out = D_proj(ssm_output) * gate
+    auto states_ln = layer_norm(states, P["ssm_pathway.ln_state.weight"],
+                                       P["ssm_pathway.ln_state.bias"], 1e-5);
+    auto ssm_output = C * states_ln;
+    auto out = D_proj.forward(ssm_output) * gate;
     write_outputs(od, {{"y", out}});
 }
 

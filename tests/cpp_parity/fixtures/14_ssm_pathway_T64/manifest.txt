@@ -1,0 +1,27 @@
+component 14_ssm_pathway_T64
+config hidden_size 8
+config state_dim 16
+config kernel_size 3
+config use_conv 1
+tolerance max_abs 1e-05
+tolerance max_rel 1e-04
+tensor input x float32 input_x.bin 1,64,8
+tensor param ssm_pathway.A_log float32 param_ssm_pathway.A_log.bin 16
+tensor param ssm_pathway.dt_proj.weight float32 param_ssm_pathway.dt_proj.weight.bin 16,8
+tensor param ssm_pathway.dt_proj.bias float32 param_ssm_pathway.dt_proj.bias.bin 16
+tensor param ssm_pathway.B_proj.weight float32 param_ssm_pathway.B_proj.weight.bin 16,8
+tensor param ssm_pathway.B_proj.bias float32 param_ssm_pathway.B_proj.bias.bin 16
+tensor param ssm_pathway.C_proj.weight float32 param_ssm_pathway.C_proj.weight.bin 16,8
+tensor param ssm_pathway.C_proj.bias float32 param_ssm_pathway.C_proj.bias.bin 16
+tensor param ssm_pathway.D_proj.weight float32 param_ssm_pathway.D_proj.weight.bin 8,16
+tensor param ssm_pathway.D_proj.bias float32 param_ssm_pathway.D_proj.bias.bin 8
+tensor param ssm_pathway.conv.weight float32 param_ssm_pathway.conv.weight.bin 8,1,3
+tensor param ssm_pathway.conv.bias float32 param_ssm_pathway.conv.bias.bin 8
+tensor param ssm_pathway.gate_proj.weight float32 param_ssm_pathway.gate_proj.weight.bin 16,8
+tensor param ssm_pathway.gate_proj.bias float32 param_ssm_pathway.gate_proj.bias.bin 16
+tensor param ssm_pathway.ln_input.weight float32 param_ssm_pathway.ln_input.weight.bin 8
+tensor param ssm_pathway.ln_input.bias float32 param_ssm_pathway.ln_input.bias.bin 8
+tensor param ssm_pathway.ln_state.weight float32 param_ssm_pathway.ln_state.weight.bin 16
+tensor param ssm_pathway.ln_state.bias float32 param_ssm_pathway.ln_state.bias.bin 16
+tensor expected y float32 expected_y.bin 1,64,8
+end

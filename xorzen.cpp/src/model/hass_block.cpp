@@ -102,8 +102,12 @@ SSMPathwayImpl::SSMPathwayImpl(int64_t hidden, int64_t state, int64_t kernel,
     D_proj = register_module("D_proj", torch::nn::Linear(state_dim, hidden_dim));
     gate_proj = register_module("gate_proj", torch::nn::Linear(hidden_dim, hidden_dim * 2));
     if (use_conv) {
+        // CAUSAL left-padding: padding = kernel_size - 1, then truncate to T.
+        // Mirrors Python SSMPathway (hass_block.py:432-437). The previous
+        // C++ used padding = kernel_size / 2 (center padding), which caused
+        // future-token leakage — a correctness bug, not just a numerical diff.
         conv = register_module("conv", torch::nn::Conv1d(torch::nn::Conv1dOptions(hidden_dim, hidden_dim, kernel_size)
-            .padding(kernel_size / 2).groups(hidden_dim)));
+            .padding(kernel_size - 1).groups(hidden_dim)));
     }
     ln_input = register_module("ln_input", torch::nn::LayerNorm(torch::nn::LayerNormOptions({hidden_dim})));
     ln_state = register_module("ln_state", torch::nn::LayerNorm(torch::nn::LayerNormOptions({state_dim})));
@@ -117,44 +121,53 @@ SSMPathwayImpl::SSMPathwayImpl(int64_t hidden, int64_t state, int64_t kernel,
 
 #include <torch/autograd.h>
 
+// SSMScanFunction: serial scan over the recurrence h_t = A_bar_t * h_{t-1} + B_bar_t.
+//
+// FIX vs previous version: this function now returns RAW STATES h_t (not C*h).
+// C is no longer passed in — the caller applies C after the scan and after ln_state,
+// matching Python SSMPathway.forward_parallel (hass_block.py:549-562, 612-615).
+//
+// Inputs:
+//   Ab:     [B, T, N]  (already ZOH-discretized A_bar = exp(dt * a))
+//   Bb:     [B, T, N]  (already ZOH-discretized B_bar = ((exp(z)-1)/z) * dt * Bv)
+//
+// Output:
+//   states: [B, T, N]  (raw h_t values)
+//
+// Backward: dL/dAb, dL/dBb. (No dL/dC — C is applied in the caller's autograd graph.)
 class SSMScanFunction : public torch::autograd::Function<SSMScanFunction> {
 public:
     static torch::Tensor forward(torch::autograd::AutogradContext* ctx,
                                  torch::Tensor Ab,
-                                 torch::Tensor Bv,
-                                 torch::Tensor C) {
+                                 torch::Tensor Bb) {
         auto Ab_cpu = Ab.to(torch::kCPU).contiguous();
-        auto Bv_cpu = Bv.to(torch::kCPU).contiguous();
-        auto C_cpu = C.to(torch::kCPU).contiguous();
-        
+        auto Bb_cpu = Bb.to(torch::kCPU).contiguous();
+
         const int64_t B = Ab.size(0);
         const int64_t T = Ab.size(1);
         const int64_t D = Ab.size(2);
-        
+
         auto states_cpu = torch::empty({B, T, D}, Ab.options().device(torch::kCPU));
-        
+
         const float* p_Ab = Ab_cpu.data_ptr<float>();
-        const float* p_Bv = Bv_cpu.data_ptr<float>();
-        const float* p_C = C_cpu.data_ptr<float>();
+        const float* p_Bb = Bb_cpu.data_ptr<float>();
         float* p_states = states_cpu.data_ptr<float>();
-        
+
         for (int64_t b = 0; b < B; ++b) {
             std::vector<float> h(D, 0.0f);
             for (int64_t t = 0; t < T; ++t) {
                 int64_t offset = b * T * D + t * D;
                 for (int64_t d = 0; d < D; ++d) {
                     float ab = p_Ab[offset + d];
-                    float bv = p_Bv[offset + d];
-                    float c = p_C[offset + d];
-                    float h_next = ab * h[d] + bv;
-                    h[d] = h_next;
-                    p_states[offset + d] = c * h_next;
+                    float bb = p_Bb[offset + d];
+                    h[d] = ab * h[d] + bb;
+                    p_states[offset + d] = h[d];  // raw state, NOT c*h
                 }
             }
         }
-        
+
         auto states = states_cpu.to(Ab.device());
-        ctx->save_for_backward({Ab_cpu, Bv_cpu, C_cpu});
+        ctx->save_for_backward({Ab_cpu, Bb_cpu});
         return states;
     }
 
@@ -162,27 +175,23 @@ public:
                                                    torch::autograd::variable_list grad_outputs) {
         auto saved = ctx->get_saved_variables();
         auto Ab_cpu = saved[0];
-        auto Bv_cpu = saved[1];
-        auto C_cpu = saved[2];
+        auto Bb_cpu = saved[1];
         auto grad_states_cpu = grad_outputs[0].to(torch::kCPU).contiguous();
-        
+
         const int64_t B = Ab_cpu.size(0);
         const int64_t T = Ab_cpu.size(1);
         const int64_t D = Ab_cpu.size(2);
-        
+
         auto grad_Ab_cpu = torch::zeros_like(Ab_cpu);
-        auto grad_Bv_cpu = torch::zeros_like(Bv_cpu);
-        auto grad_C_cpu = torch::zeros_like(C_cpu);
-        
+        auto grad_Bb_cpu = torch::zeros_like(Bb_cpu);
+
         const float* p_Ab = Ab_cpu.data_ptr<float>();
-        const float* p_Bv = Bv_cpu.data_ptr<float>();
-        const float* p_C = C_cpu.data_ptr<float>();
+        const float* p_Bb = Bb_cpu.data_ptr<float>();
         const float* p_grad_states = grad_states_cpu.data_ptr<float>();
-        
+
         float* p_grad_Ab = grad_Ab_cpu.data_ptr<float>();
-        float* p_grad_Bv = grad_Bv_cpu.data_ptr<float>();
-        float* p_grad_C = grad_C_cpu.data_ptr<float>();
-        
+        float* p_grad_Bb = grad_Bb_cpu.data_ptr<float>();
+
         for (int64_t b = 0; b < B; ++b) {
             // Recompute h values for numerical stability
             std::vector<float> h(T * D, 0.0f);
@@ -191,45 +200,70 @@ public:
                 int64_t offset = b * T * D + t * D;
                 for (int64_t d = 0; d < D; ++d) {
                     float ab = p_Ab[offset + d];
-                    float bv = p_Bv[offset + d];
-                    float h_next = ab * curr_h[d] + bv;
-                    curr_h[d] = h_next;
-                    h[t * D + d] = h_next;
+                    float bb = p_Bb[offset + d];
+                    curr_h[d] = ab * curr_h[d] + bb;
+                    h[t * D + d] = curr_h[d];
                 }
             }
-            
+
+            // Backward scan: dh accumulates gradient flowing back from later timesteps.
             std::vector<float> dh(D, 0.0f);
             for (int64_t t = T - 1; t >= 0; --t) {
                 int64_t offset = b * T * D + t * D;
                 for (int64_t d = 0; d < D; ++d) {
                     float ab = p_Ab[offset + d];
-                    float c = p_C[offset + d];
-                    float h_t = h[t * D + d];
                     float h_prev = (t > 0) ? h[(t - 1) * D + d] : 0.0f;
-                    
-                    float grad_out = p_grad_states[offset + d];
-                    p_grad_C[offset + d] = grad_out * h_t;
-                    
-                    float grad_h_t = grad_out * c + dh[d];
-                    p_grad_Bv[offset + d] = grad_h_t;
+
+                    float grad_h_t = p_grad_states[offset + d] + dh[d];
+                    // h_t = ab * h_{t-1} + bb  →  dL/dbb = grad_h_t, dL/dab = grad_h_t * h_prev
+                    p_grad_Bb[offset + d] = grad_h_t;
                     p_grad_Ab[offset + d] = grad_h_t * h_prev;
-                    
+                    // dL/dh_{t-1} += grad_h_t * ab
                     dh[d] = grad_h_t * ab;
                 }
             }
         }
-        
+
         auto device = grad_outputs[0].device();
-        return {grad_Ab_cpu.to(device), grad_Bv_cpu.to(device), grad_C_cpu.to(device)};
+        return {grad_Ab_cpu.to(device), grad_Bb_cpu.to(device)};
     }
 };
+
+// Helper: ZOH discretization for diagonal A, mirroring Python discretize_zoh
+// (ssm_scan.py:62-106). Returns (A_bar, B_bar).
+//   a:  [N]            negative real diagonal of A
+//   Bv: [B, T, N]      raw B projection
+//   dt: [B, T, N]      input-dependent step size
+//   A_bar = exp(dt * a)
+//   B_bar = ((exp(z) - 1) / z) * dt * Bv    where z = dt * a
+//   For |z| < 1e-4, use Taylor: 1 + z/2 + z²/6 (avoids 0/0).
+static std::pair<torch::Tensor, torch::Tensor>
+discretize_zoh(const torch::Tensor& a,     // [N]
+               const torch::Tensor& Bv,    // [B, T, N]
+               const torch::Tensor& dt,    // [B, T, N]
+               double eps = 1e-4) {
+    auto a_b = a.view({1, 1, -1});           // [1, 1, N]
+    auto z = dt * a_b;                        // [B, T, N]
+    auto A_bar = torch::exp(z);
+    auto small = z.abs() < eps;
+    auto safe_z = torch::where(small, torch::ones_like(z), z);
+    auto exact = (A_bar - 1.0) / safe_z;     // (exp(z)-1)/z, stable for |z| >= eps
+    auto taylor = 1.0 + z / 2.0 + (z * z) / 6.0;
+    auto B_bar_div = torch::where(small, taylor, exact);
+    auto B_bar = B_bar_div * dt * Bv;
+    return {A_bar, B_bar};
+}
 
 torch::Tensor SSMPathwayImpl::forward(const torch::Tensor& x) {
     const int64_t B = x.size(0);
     const int64_t T = x.size(1);
     auto xn = ln_input->forward(x);
     if (use_conv && conv) {
-        xn = xn + conv->forward(xn.transpose(1, 2)).transpose(1, 2);
+        // CAUSAL conv: padding = kernel_size - 1 produces output of length T + (kernel_size - 1).
+        // Truncate to T to remove the right-side padding (mirror Python hass_block.py:525-530).
+        auto conv_out = conv->forward(xn.transpose(1, 2));   // [B, H, T + k - 1]
+        conv_out = conv_out.slice(/*dim=*/2, /*start=*/0, /*end=*/T);  // [B, H, T]
+        xn = xn + conv_out.transpose(1, 2);
     }
     auto gate_pair = gate_proj->forward(xn).chunk(2, -1);
     auto gate = torch::sigmoid(gate_pair[0]);
@@ -238,12 +272,20 @@ torch::Tensor SSMPathwayImpl::forward(const torch::Tensor& x) {
     auto C = C_proj->forward(xn);
     auto dt = torch::softplus(dt_proj->forward(xn));
     auto a = -torch::exp(A_log);
-    auto Ab = torch::exp(dt * a.view({1, 1, state_dim}));
-    
-    // Call the hyper-fast custom autograd SSM scan function
-    auto states = SSMScanFunction::apply(Ab, Bv, C);
-    
-    auto out = D_proj->forward(ln_state->forward(states)) * gate;
+
+    // ZOH discretization of BOTH A and B (mirror Python discretize_zoh).
+    auto [Ab, Bb] = discretize_zoh(a, Bv, dt);
+
+    // Scan: returns raw states h_t (NOT C*h). C is applied after ln_state below.
+    auto states = SSMScanFunction::apply(Ab, Bb);
+
+    // Python order (hass_block.py:555-562, 612-615):
+    //   states_ln = ln_state(states)        # LN(h)
+    //   ssm_output = C * states_ln          # C * LN(h)
+    //   output = D_proj(ssm_output) * gate
+    auto states_ln = ln_state->forward(states);
+    auto ssm_output = C * states_ln;
+    auto out = D_proj->forward(ssm_output) * gate;
     return dropout->forward(out);
 }
 
