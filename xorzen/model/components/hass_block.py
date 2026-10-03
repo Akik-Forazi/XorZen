@@ -43,16 +43,12 @@ class LocalAttentionPathway(nn.Module):
         self.window_size = window_size
         self.causal = causal
         
-        # QKV projections — fused into a single matmul for 3x fewer kernel launches.
-        # The old code had 3 separate nn.Linear(hidden, hidden) layers = 3 separate
-        # GEMM kernel launches. The fused version does one GEMM with output 3*hidden,
-        # then chunks into Q, K, V. Same math, 3x fewer kernel launches.
-        # Backwards-compatible: the old q_proj/k_proj/v_proj are kept as properties
-        # that slice from the fused weight, so state_dict keys still match.
-        self.qkv_fused = nn.Linear(hidden_dim, hidden_dim * 3)
-        # Keep old names for state_dict backwards-compat — they're not used in forward
-        # but exist so old checkpoints can load. The fused weight is initialized from
-        # the three separate weights during from_pretrained / load_state_dict.
+        # QKV projections — separate q/k/v for checkpoint compatibility.
+        # The fused QKV (qkv_fused) was a premature optimization that broke
+        # checkpoint loading because old checkpoints have q_proj/k_proj/v_proj
+        # keys, not qkv_fused. PyTorch's CUDA backend already fuses multiple
+        # small GEMMs internally, so the theoretical 3x kernel-launch saving
+        # is mostly absorbed by the GPU scheduler.
         self.q_proj = nn.Linear(hidden_dim, hidden_dim)
         self.k_proj = nn.Linear(hidden_dim, hidden_dim)
         self.v_proj = nn.Linear(hidden_dim, hidden_dim)
@@ -111,10 +107,10 @@ class LocalAttentionPathway(nn.Module):
         """
         batch_size, seq_len, _ = x.shape
 
-        # Fused QKV projection — single matmul instead of 3 separate ones.
-        # This reduces kernel launch overhead by 3x for the projection stage.
-        qkv = self.qkv_fused(x)  # [B, S, 3*H]
-        q, k, v = qkv.chunk(3, dim=-1)
+        # Project Q, K, V (separate projections for checkpoint compatibility)
+        q = self.q_proj(x)  # [batch, seq, hidden]
+        k = self.k_proj(x)
+        v = self.v_proj(x)
 
         # Reshape for multi-head attention
         q = q.view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)

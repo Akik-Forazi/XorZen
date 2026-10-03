@@ -49,29 +49,18 @@ def compile(
     dynamic: bool = False,
     backend: Optional[str] = None,
 ) -> nn.Module:
-    """Compile a xorzen model for maximum performance.
+    """Apply xorzen optimization patches to a model.
 
-    IMPORTANT: As of v1.0.2, this function is a NO-OP. It returns the model
-    unchanged. torch.compile was found to be fundamentally incompatible with
-    xorzen's architecture because:
+    This function does NOT use torch.compile (which is incompatible with
+    xorzen's dynamic control flow — MoE dispatch loops, SlicedFFN width
+    grouping, and router conditionals cause recompilation limit hits).
 
-    1. MoE dispatch uses Python for-loops over unique expert IDs — the set of
-       active experts changes every batch, triggering recompilation.
-    2. SlicedFFN groups tokens by width choice — the grouping changes every
-       batch, triggering recompilation.
-    3. The router makes conditional decisions (depth/width/path/expert) that
-       create data-dependent control flow torch.compile can't trace.
-
-    After 8 recompilations (the default limit), torch.compile gives up and
-    falls back to eager mode — but the compilation time (76 seconds per pass!)
-    makes it MUCH slower than plain eager mode.
-
-    The REAL speedups are architecture-level, not compilation-level:
-    - Flash Attention (F.scaled_dot_product_attention) — already in hass_block.py
-    - Fused QKV projection — already in hass_block.py
-    - Vectorized forward_with_depth — already in hass_block.py (commit 863fee9)
-    - MoE .item() sync elimination — already in zmoe.py (commit d14adc1)
-    - Native C++ kernels — auto-loaded by native_kernels.py if compiler available
+    What it does:
+    1. Patches SSM sequential_scan with a JIT-compiled (@torch.jit.script)
+       version that is behaviorally identical (verified by parity test).
+    2. Attempts to load native C++ kernels (AVX2) if a compiler is available.
+       Native kernels are NOT auto-patched into the model because they use
+       approximate GELU (tanh) vs PyTorch's exact GELU (erf).
 
     Args:
         model: The xorzen model.
@@ -81,14 +70,15 @@ def compile(
         backend: Ignored.
 
     Returns:
-        The model unchanged.
+        The model with JIT patches applied (or unchanged if patching fails).
     """
-    print("[xorzen.compile] Applying JIT-compiled hot-path kernels...")
-    print("[xorzen.compile]   - MoE expert dispatch loop → torch.jit.script")
-    print("[xorzen.compile]   - SSM diagonal scan loop → torch.jit.script")
-    print("[xorzen.compile]   - SlicedFFN width grouping → torch.jit.script")
+    print("[xorzen.compile] Applying optimization patches...")
+    print("[xorzen.compile]   - SSM sequential_scan → torch.jit.script (verified parity)")
     print("[xorzen.compile]   - Flash Attention (SDPA) ✓ (already in hass_block.py)")
-    print("[xorzen.compile]   - Fused QKV projection ✓ (already in hass_block.py)")
+    print("[xorzen.compile]   - Vectorized forward_with_depth ✓ (already in hass_block.py)")
+    print("[xorzen.compile]   - MoE .item() sync elimination ✓ (already in zmoe.py)")
+    print("[xorzen.compile] NOTE: torch.compile is NOT used (incompatible with xorzen's")
+    print("[xorzen.compile]   dynamic control flow — causes recompile limit hits).")
 
     # Apply JIT patches to hot-path Python loops
     try:

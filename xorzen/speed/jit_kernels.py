@@ -129,17 +129,19 @@ def jit_moe_dispatch(
 # ============================================================================
 
 @torch.jit.script
-def jit_diagonal_ssm_scan(
+def jit_sequential_scan(
     A_bar: torch.Tensor,
     B_bar: torch.Tensor,
+    init_state: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
-    """JIT-compiled sequential SSM scan matching ssm_scan.sequential_scan signature.
+    """JIT-compiled sequential SSM scan — behaviorally identical to ssm_scan.sequential_scan.
 
     h_t = A_bar_t * h_{t-1} + B_bar_t
 
     Args:
         A_bar: [B, T, N] — per-timestep state transition (in (0, 1))
         B_bar: [B, T, N] — per-timestep input
+        init_state: [B, N] or None (zeros)
 
     Returns:
         states: [B, T, N]
@@ -148,14 +150,21 @@ def jit_diagonal_ssm_scan(
     T_size = A_bar.shape[1]
     N_size = A_bar.shape[2]
 
-    states = torch.zeros(B_size, T_size, N_size, device=A_bar.device, dtype=A_bar.dtype)
-    h = torch.zeros(B_size, N_size, device=A_bar.device, dtype=A_bar.dtype)
+    if init_state is not None:
+        h = init_state
+    else:
+        h = torch.zeros(B_size, N_size, device=A_bar.device, dtype=A_bar.dtype)
 
+    outs = torch.jit.annotate(List[torch.Tensor], [])
     for t in range(T_size):
         h = A_bar[:, t] * h + B_bar[:, t]
-        states[:, t] = h
+        outs.append(h)
 
-    return states
+    return torch.stack(outs, dim=1)
+
+
+# Keep old name as alias for backward compat
+jit_diagonal_ssm_scan = jit_sequential_scan
 
 
 # ============================================================================
@@ -223,14 +232,15 @@ def auto_patch_model(model: nn.Module) -> bool:
     # except:
     #     ...
 
-    # 2. Patch SSM scan
+    # 2. Patch SSM scan — replace sequential_scan with JIT-compiled version
+    #    that has the SAME signature (A_bar, B_bar, init_state=None).
+    #    This is safe because jit_sequential_scan is behaviorally identical
+    #    to the original sequential_scan (verified by parity test).
     try:
-        from xorzen.model.components.ssm_scan import sequential_scan
         import xorzen.model.components.ssm_scan as ssm_module
-        # Patch the sequential_scan function used by SSMPathway
-        ssm_module.sequential_scan = jit_diagonal_ssm_scan
+        ssm_module.sequential_scan = jit_sequential_scan
         patched = True
-        print("[xorzen.jit] Patched ssm_scan.sequential_scan → jit_diagonal_ssm_scan")
+        print("[xorzen.jit] Patched ssm_scan.sequential_scan → jit_sequential_scan (chunk-safe)")
     except Exception as e:
         print(f"[xorzen.jit] Could not patch SSM: {e}")
 

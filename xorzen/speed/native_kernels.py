@@ -344,16 +344,12 @@ def auto_patch_model(model: nn.Module) -> bool:
 
     patched = False
 
-    # Patch SlicedFFN GELU
-    try:
-        from xorzen.model.components.sliced_ffn import SlicedFFN
-        if hasattr(SlicedFFN, '_activation'):
-            original_activation = SlicedFFN._activation
-            def fast_activation(self, x):
-                return fused_gelu(x)
-            SlicedFFN._activation = fast_activation
-            patched = True
-    except Exception:
-        pass
+    # NOTE: We do NOT patch SlicedFFN._activation with fused_gelu because the
+    # C++ kernel uses tanh-approximate GELU while PyTorch uses exact GELU (erf).
+    # This would silently change model semantics. The native GELU kernel remains
+    # available as fused_gelu() for explicit opt-in use, but is never auto-patched.
+    #
+    # To re-enable auto-patching, the C++ kernel must be updated to use the exact
+    # GELU formula: x * 0.5 * (1 + erf(x / sqrt(2)))
 
     return patched
