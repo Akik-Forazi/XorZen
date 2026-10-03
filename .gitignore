@@ -113,3 +113,4 @@ credentials.json
 tests/cpp_parity/cpp/end_to_end_harness
 tests/cpp_parity/cpp/hass_granular_harness
 tests/cpp_parity/cpp/training_smoke_test
+tests/cpp_parity/cpp/generation_test
