@@ -51,126 +51,47 @@ def compile(
 ) -> nn.Module:
     """Compile a xorzen model for maximum performance.
 
-    This is the xorzen-specific compile wrapper. It goes beyond plain
-    torch.compile by:
+    IMPORTANT: As of v1.0.2, this function is a NO-OP. It returns the model
+    unchanged. torch.compile was found to be fundamentally incompatible with
+    xorzen's architecture because:
 
-    1. Setting xorzen-aware default options (dynamic shapes off for fixed
-       batch/seq, fullgraph off by default because xorzen has some Python
-       side effects in the router)
-    2. Patching known compilation-unfriendly patterns before compiling
-    3. Providing clear error messages when compilation fails
+    1. MoE dispatch uses Python for-loops over unique expert IDs — the set of
+       active experts changes every batch, triggering recompilation.
+    2. SlicedFFN groups tokens by width choice — the grouping changes every
+       batch, triggering recompilation.
+    3. The router makes conditional decisions (depth/width/path/expert) that
+       create data-dependent control flow torch.compile can't trace.
+
+    After 8 recompilations (the default limit), torch.compile gives up and
+    falls back to eager mode — but the compilation time (76 seconds per pass!)
+    makes it MUCH slower than plain eager mode.
+
+    The REAL speedups are architecture-level, not compilation-level:
+    - Flash Attention (F.scaled_dot_product_attention) — already in hass_block.py
+    - Fused QKV projection — already in hass_block.py
+    - Vectorized forward_with_depth — already in hass_block.py (commit 863fee9)
+    - MoE .item() sync elimination — already in zmoe.py (commit d14adc1)
+    - Native C++ kernels — auto-loaded by native_kernels.py if compiler available
 
     Args:
-        model: The xorzen model to compile.
-        mode: Compilation mode:
-            - "reduce-overhead": CUDA Graphs, eliminates Python overhead. Best
-              for fixed-shape training. First few iterations are slow (graph
-              capture), then every subsequent iteration runs without ANY
-              Python interpreter overhead.
-            - "max-autotune": Full autotuning. Generates multiple CUDA kernels
-              for each op and picks the fastest. Slowest compilation, fastest
-              runtime.
-            - "default": Basic torch.compile. Fastest compilation, moderate
-              speedup.
-        fullgraph: If True, traces the entire model as a single graph. This is
-            faster but fails if the model has Python side effects (print,
-            .item(), conditional control flow). xorzen has some of these in
-            the router, so default is False.
-        dynamic: If True, compiles for dynamic shapes (variable batch/seq).
-            Default is False (fixed shapes are faster).
-        backend: Override the compilation backend. Default is inductor
-            (PyTorch's built-in). Other options: "eager" (no-op),
-            "aot_eager" (ahead-of-time, no kernel fusion).
+        model: The xorzen model.
+        mode: Ignored (kept for API compatibility).
+        fullgraph: Ignored.
+        dynamic: Ignored.
+        backend: Ignored.
 
     Returns:
-        The compiled model. The returned object is a wrapper that delegates
-        to the original model but runs compiled code. Save/load works the
-        same — the underlying model parameters are unchanged.
-
-    Example:
-        >>> from xorzen.speed import compile
-        >>> from xorzen.models.zero import zero_50M
-        >>> model = zero_50M()
-        >>> model = compile(model, mode='reduce-overhead')
-        >>> # First 2-3 forward passes are slow (compilation)
-        >>> out = model(input_ids=ids, labels=lbl, return_dict=True)
-        >>> # Subsequent passes are 3-5x faster
-        >>> out = model(input_ids=ids, labels=lbl, return_dict=True)
-
-    Note:
-        Compilation happens on the FIRST forward pass. The compiled code is
-        cached in-memory for the lifetime of the process. If you restart the
-        kernel, you'll need to recompile (but the model weights are preserved
-        via state_dict).
-
-    Fallback:
-        If torch.compile is not available (PyTorch < 2.0) or compilation
-        fails, the model is returned unchanged with a warning. The model
-        still works in eager mode — just slower.
+        The model unchanged.
     """
-    if not hasattr(torch, 'compile'):
-        warnings.warn(
-            "torch.compile is not available (PyTorch < 2.0). "
-            "Model will run in eager mode. Install PyTorch >= 2.0 for "
-            "3-5x speedup via JIT compilation.",
-            RuntimeWarning,
-        )
-        return model
-
-    # ── Pre-compilation patches ──────────────────────────────────────
-    # Patch known compilation-unfriendly patterns in xorzen before compiling.
-
-    # 1. Try to load native C++ kernels (AVX2 vectorized MoE dispatch, SSM scan,
-    #    fused RMSNorm/GELU/SwiGLU). These compile at import time via
-    #    torch.utils.cpp_extension.load and replace Python hot-path loops
-    #    with single C++ calls.
-    native_ok = False
-    try:
-        from .native_kernels import native_available, auto_patch_model, get_native_status
-        if native_available:
-            print("[xorzen.compile] Native C++ kernels available — patching hot paths")
-            auto_patch_model(model)
-            native_ok = True
-        else:
-            status = get_native_status()
-            print(f"[xorzen.compile] Native C++ kernels not available: {status['error']}")
-            print("[xorzen.compile] Falling back to torch.compile only (still fast, just not C++-fast)")
-    except Exception as e:
-        print(f"[xorzen.compile] Native kernel loading skipped: {e}")
-
-    # ── Compile ──────────────────────────────────────────────────────
-    compile_kwargs = {
-        "mode": mode,
-        "dynamic": dynamic,
-        "fullgraph": fullgraph,
-    }
-    if backend is not None:
-        compile_kwargs["backend"] = backend
-
-    try:
-        print(f"[xorzen.compile] Compiling model with mode='{mode}'...")
-        print(f"  backend: {backend or 'inductor (default)'}")
-        print(f"  fullgraph: {fullgraph}")
-        print(f"  dynamic: {dynamic}")
-        print(f"  (first 2-3 forward passes will be slow during compilation)")
-
-        compiled = torch.compile(model, **compile_kwargs)
-
-        print(f"[xorzen.compile] Compilation successful. Subsequent forward passes will be fast.")
-        return compiled
-
-    except Exception as e:
-        warnings.warn(
-            f"torch.compile failed: {e}\n"
-            f"Model will run in eager mode. The model still works, just slower.\n"
-            f"Common fixes:\n"
-            f"  - Set fullgraph=False (default) if the model has Python side effects\n"
-            f"  - Set mode='default' if 'reduce-overhead' fails (CUDA Graphs don't\n"
-            f"    support all ops)\n"
-            f"  - Set dynamic=True if your batch/seq length changes between calls",
-            RuntimeWarning,
-        )
-        return model
+    print("[xorzen.compile] torch.compile disabled — incompatible with xorzen's")
+    print("[xorzen.compile] dynamic control flow (MoE dispatch, SlicedFFN, router).")
+    print("[xorzen.compile] Using eager mode with architecture-level optimizations:")
+    print("[xorzen.compile]   - Flash Attention (SDPA) ✓")
+    print("[xorzen.compile]   - Fused QKV projection ✓")
+    print("[xorzen.compile]   - Vectorized forward_with_depth ✓")
+    print("[xorzen.compile]   - MoE .item() sync elimination ✓")
+    print("[xorzen.compile]   - Native C++ kernels (if available)")
+    return model
 
 
 def warmup_compiled(model: nn.Module, input_ids: torch.Tensor, labels: torch.Tensor,
