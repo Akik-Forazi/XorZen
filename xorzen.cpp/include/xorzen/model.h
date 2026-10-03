@@ -31,7 +31,10 @@ struct XorzenModelImpl : torch::nn::Module {
 
     // Latent Chain-of-Thought
     InternalLatentCoT cot{nullptr};
-    CoTAuxiliaryLoss cot_loss_head{nullptr};
+    // NOTE: cot_loss_head REMOVED — Python zeroModel does not instantiate
+    // CoTAuxiliaryLoss (only InternalLatentCoT is used). The C++ model
+    // previously registered cot_loss_head.* parameters that don't exist in
+    // Python checkpoints, causing 8 "unexpected" keys.
     
     int64_t step_count = 0;
     int64_t total_tokens_processed = 0;

@@ -30,9 +30,12 @@ struct LowRankGlobalPathwayImpl : torch::nn::Module {
     int64_t low_rank_dim;
     int64_t num_heads;
     torch::nn::Linear to_low_rank{nullptr}, from_low_rank{nullptr};
-    torch::nn::LayerNorm ln_input{nullptr}, ln_low_rank{nullptr};
+    torch::nn::LayerNorm ln_input{nullptr};
     torch::nn::Dropout dropout{nullptr};
-    torch::Tensor context_weights;
+    // NOTE: ln_low_rank and context_weights REMOVED to match Python.
+    // Python LowRankGlobalPathway (hass_block.py:261-368) has only ln_input,
+    // to_low_rank, from_low_rank, dropout. No learned context query, no
+    // second LayerNorm. Uses causal self-attention with GELU.
 
     LowRankGlobalPathwayImpl(int64_t hidden_dim, int64_t low_rank_dim, int64_t num_heads = 1, double dropout = 0.0);
     torch::Tensor forward(const torch::Tensor& x);
@@ -76,7 +79,8 @@ struct HASSBlockImpl : torch::nn::Module {
     LocalAttentionPathway local{nullptr};
     LowRankGlobalPathway low_rank{nullptr};
     SSMPathway ssm{nullptr};
-    torch::nn::Sequential pathway_gate{nullptr};
+    // NOTE: pathway_gate REMOVED — Python removed it in v0.5 (hass_block.py:897-903).
+    // When routing_decision is provided, path_probs are used directly.
     AdaptiveFFN ffn{nullptr};
     torch::nn::LayerNorm ln1{nullptr}, ln2{nullptr};
     torch::nn::Dropout dropout{nullptr};

@@ -32,7 +32,7 @@ XorzenModelImpl::XorzenModelImpl(ModelConfig cfg, bool test_mode) : config(std::
     
     // Latent Chain-of-Thought
     cot = register_module("cot", InternalLatentCoT(config));
-    cot_loss_head = register_module("cot_loss_head", CoTAuxiliaryLoss(config));
+    // NOTE: cot_loss_head REMOVED — Python does not instantiate it.
     
     init_weights();
     if (config.tie_word_embeddings) {
@@ -144,12 +144,10 @@ ModelOutput XorzenModelImpl::forward(const torch::Tensor& input_ids,
     if (lm_loss.defined()) loss = lm_loss + routing_loss + load_balance;
     else loss = routing_loss + load_balance;
 
-    if (cot->cot_enabled) {
-        auto cot_losses = cot_loss_head->forward(cot_vector, labels, {}, attention_mask);
-        cot_consistency = cot_losses["consistency"];
-        auto total_cot_aux = cot_losses["total_auxiliary"];
-        loss = loss + total_cot_aux;
-    }
+    // NOTE: cot_loss_head removed — Python does not add CoT auxiliary losses
+    // during pre-training. The cot_consistency loss is computed separately
+    // in the Python model._compute_cot_consistency_loss but only when
+    // _cot_enabled is True. For tiny_23k pre-training, CoT is frozen.
 
     ModelOutput output;
     auto actions = torch::zeros({B, T, 1}, hidden.options());
@@ -271,12 +269,15 @@ XorzenModelImpl::load_from_tensor_map(
         // Python alias: blocks.{i}.local.* ← blocks.{i}.pathways.local.*
         // C++ registers local/low_rank/ssm directly, Python uses a ModuleDict "pathways"
         if (name.find("blocks.") == 0) {
-            // Insert ".pathways." after "blocks.{i}." for local/low_rank/ssm
-            auto dot = name.find('.', 8);  // find second dot after "blocks.{i}"
-            if (dot != std::string::npos) {
-                auto rest = name.substr(dot + 1);
+            // Find the second dot: "blocks.{i}." → the dot after {i}
+            // blocks.0.local... → second dot at position 8
+            // blocks.10.local... → second dot at position 9
+            size_t first_dot = name.find('.');
+            size_t second_dot = name.find('.', first_dot + 1);
+            if (second_dot != std::string::npos) {
+                auto rest = name.substr(second_dot + 1);
                 if (rest.find("local.") == 0 || rest.find("low_rank.") == 0 || rest.find("ssm.") == 0) {
-                    auto py_name = name.substr(0, dot + 1) + "pathways." + rest;
+                    auto py_name = name.substr(0, second_dot + 1) + "pathways." + rest;
                     auto it = sd.find(py_name);
                     if (it != sd.end() && it->second.sizes() == param.sizes()) {
                         param.copy_(it->second); result.matched++; consumed.insert(py_name); continue;
@@ -316,8 +317,10 @@ XorzenModelImpl::load_from_tensor_map(
                 k.find("low_rank.context_weights") != std::string::npos ||
                 k.find("low_rank.ln_low_rank.") != std::string::npos ||
                 k.find("character_router.") != std::string::npos ||
-                k.find("cot_loss_head.") != std::string::npos) {
-                continue;  // C++-only, not an error
+                k.find("cot_loss_head.") != std::string::npos ||
+                k.find("moe.experts.") == 0) {
+                // moe.experts.0.* are consumed by the moe.dummy_expert.* alias
+                continue;
             }
             result.unexpected++;
             result.unexpected_keys.push_back(k);

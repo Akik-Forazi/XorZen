@@ -71,25 +71,54 @@ LowRankGlobalPathwayImpl::LowRankGlobalPathwayImpl(int64_t hidden, int64_t low_r
     to_low_rank = register_module("to_low_rank", torch::nn::Linear(hidden_dim, D));
     from_low_rank = register_module("from_low_rank", torch::nn::Linear(D, hidden_dim));
     ln_input = register_module("ln_input", torch::nn::LayerNorm(torch::nn::LayerNormOptions({hidden_dim})));
-    ln_low_rank = register_module("ln_low_rank", torch::nn::LayerNorm(torch::nn::LayerNormOptions({D})));
     dropout = register_module("dropout", torch::nn::Dropout(dropout_p));
-    context_weights = register_parameter("context_weights", torch::randn({1, 1, D}) * 0.02);
+    // NOTE: ln_low_rank and context_weights REMOVED — Python LowRankGlobalPathway
+    // does not have these. It uses causal self-attention with GELU, no learned
+    // context query, no second LayerNorm. See hass_block.py:261-368.
     xavier_linear(to_low_rank, 1.0 / std::sqrt(2.0));
     xavier_linear(from_low_rank, 1.0 / std::sqrt(2.0));
 }
 
 torch::Tensor LowRankGlobalPathwayImpl::forward(const torch::Tensor& x) {
-    auto xn = ln_input->forward(x);
-    auto lr = optimized::fused_layernorm_gelu_simd(
-        to_low_rank->forward(xn),
-        ln_low_rank->weight,
-        ln_low_rank->bias,
-        ln_low_rank->options.eps()
-    );
-    auto attn = optimized::softmax_simd(torch::matmul(lr, context_weights.transpose(-1, -2)) /
-                               std::sqrt(static_cast<double>(low_rank_dim)), 1);
-    auto global_ctx = torch::matmul(attn.transpose(-1, -2), lr).expand_as(lr);
-    return dropout->forward(from_low_rank->forward(lr + global_ctx));
+    // Mirror Python LowRankGlobalPathway.forward (hass_block.py:309-368) exactly.
+    auto x_norm = ln_input->forward(x);
+    auto low_rank = to_low_rank->forward(x_norm);
+    low_rank = torch::gelu(low_rank);
+
+    int64_t B = low_rank.size(0), S = low_rank.size(1);
+    int64_t rk_dim = low_rank_dim * num_heads;
+
+    // Causal lower-triangular mask
+    auto causal_mask = torch::tril(torch::ones({S, S}, low_rank.options()));
+
+    if (S <= 512) {
+        // Full pairwise causal attention: O(T^2 * D)
+        auto scores = torch::matmul(low_rank, low_rank.transpose(-1, -2)) /
+                      std::sqrt(static_cast<double>(rk_dim));
+        scores = scores.masked_fill(causal_mask.unsqueeze(0).eq(0),
+                                     -std::numeric_limits<float>::infinity());
+        auto attn_w = torch::softmax(scores, -1);
+        auto global_context = torch::matmul(attn_w, low_rank);
+        auto combined = low_rank + global_context;
+        return dropout->forward(from_low_rank->forward(combined));
+    } else {
+        // Chunked causal attention for long sequences (matches Python fallback)
+        auto global_context = torch::zeros_like(low_rank);
+        int64_t chunk_size = 512;
+        for (int64_t start = 0; start < S; start += chunk_size) {
+            int64_t end = std::min(start + chunk_size, S);
+            auto q_chunk = low_rank.slice(1, start, end);
+            auto scores = torch::matmul(q_chunk, low_rank.transpose(-1, -2)) /
+                          std::sqrt(static_cast<double>(rk_dim));
+            auto causal_chunk = causal_mask.slice(0, start, end);
+            scores = scores.masked_fill(causal_chunk.unsqueeze(0).eq(0),
+                                         -std::numeric_limits<float>::infinity());
+            auto attn_w = torch::softmax(scores, -1);
+            global_context.slice(1, start, end) = torch::matmul(attn_w, low_rank);
+        }
+        auto combined = low_rank + global_context;
+        return dropout->forward(from_low_rank->forward(combined));
+    }
 }
 
 SSMPathwayImpl::SSMPathwayImpl(int64_t hidden, int64_t state, int64_t kernel,
@@ -326,9 +355,9 @@ HASSBlockImpl::HASSBlockImpl(ModelConfig cfg, int64_t idx)
         std::max<int64_t>(1, config.num_attention_heads / 2), config.local_window_size, config.dropout, true));
     low_rank = register_module("low_rank", LowRankGlobalPathway(config.hidden_size, config.low_rank_dim, 4, config.dropout));
     ssm = register_module("ssm", SSMPathway(config.hidden_size, config.ssm_state_dim, config.ssm_kernel_size, config.dropout, true));
-    pathway_gate = register_module("pathway_gate", torch::nn::Sequential(
-        torch::nn::Linear(config.hidden_size, 128), torch::nn::LayerNorm(torch::nn::LayerNormOptions({128})), torch::nn::GELU(),
-        torch::nn::Linear(128, 3)));
+    // NOTE: pathway_gate REMOVED — Python removed it in v0.5.
+    // When routing_decision is provided, path_probs are used directly.
+    // When no routing_decision, uniform 1/3 weighting is used.
     ffn = register_module("ffn", AdaptiveFFN(config.hidden_size, 4.0, config.hidden_act, config.dropout));
     ln1 = register_module("ln1", torch::nn::LayerNorm(torch::nn::LayerNormOptions({config.hidden_size})));
     ln2 = register_module("ln2", torch::nn::LayerNorm(torch::nn::LayerNormOptions({config.hidden_size})));
@@ -345,11 +374,10 @@ torch::Tensor HASSBlockImpl::forward(const torch::Tensor& x,
     auto ssm_out = ssm->forward(xa);
     torch::Tensor w;
     if (routing_decision == nullptr || compute_all_pathways) {
-        w = optimized::softmax_simd(pathway_gate->forward(xa), -1);
-    } else if (is_training()) {
-        auto gate_probs = optimized::softmax_simd(pathway_gate->forward(xa), -1);
-        w = 0.9 * routing_decision->path_probs + 0.1 * gate_probs;
+        // No routing — use uniform 1/3 weighting (Python v0.5 behavior)
+        w = torch::ones({xa.size(0), xa.size(1), 3}, xa.options()) / 3.0;
     } else {
+        // Use router path_probs directly (Python v0.5 behavior)
         w = routing_decision->path_probs;
     }
     auto combined = local_out * w.slice(-1, 0, 1) +

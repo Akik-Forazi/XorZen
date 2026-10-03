@@ -28,12 +28,15 @@ ModelConfig ConfigFactory::get_config(ModelSize size) {
         c.num_attention_heads  = 2;
         c.n_kv_heads           = 2;  // no GQA in Python tiny
         c.num_experts          = 1;
+        c.expert_count         = 1;
         c.top_k_experts        = 1;
         c.max_expert_cache     = 1;
+        c.low_rank_dim         = 96;  // Python: low_rank_dim=96 for tiny_23k
+        c.ssm_state_dim        = 16;  // Python: ssm_state_dim=16
+        c.ssm_d_state          = 16;
         c.expert_hidden_multiplier = 4.0f;
         c.cot_dim              = 2;
         c.cot_components       = 6;
-        c.ssm_d_state          = 4;
         c.ssm_d_conv           = 4;
         c.context_length       = 32;
         c.max_depth            = 1;
@@ -284,8 +287,13 @@ ModelConfig ConfigFactory::get_config(ModelSize size) {
     c.use_moe               = true;
     c.test_mode             = false;
     c.local_window_size     = std::min<int64_t>(128, c.context_length);
-    c.low_rank_dim          = c.hidden_size * 3 / 8;  // Python default: hidden * 3 / 8
-    c.ssm_state_dim         = 16;  // Python default
+    // Only set low_rank_dim if not already set by the case-specific config
+    if (c.low_rank_dim == 64) {  // still at default
+        c.low_rank_dim = c.hidden_size * 3 / 8;
+    }
+    if (c.ssm_state_dim == 16 && c.ssm_d_state == 16) {
+        // ssm_state_dim already set by case or default
+    }
     c.target_active_ratio   = 0.1f;  // Python default
     c.unify_load_balance    = true;  // Python default — zeros load_balance_loss
 
