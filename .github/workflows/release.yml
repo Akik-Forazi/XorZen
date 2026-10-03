@@ -3,50 +3,157 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version tag (e.g. v1.0.2)'
+        description: "Version tag (e.g. v1.0.1)"
         required: true
+        default: "v1.0.1"
+
+env:
+  LIBTORCH_VERSION: "2.14.1"
 
 jobs:
-  # This workflow is triggered by pushing a tag like `git tag v1.0.2 && git push origin v1.0.2`
-  # It will:
-  # 1. Run the build-native-kernels workflow (builds all platforms)
-  # 2. Run the parity tests
-  # 3. Create a GitHub release with all pre-compiled binaries
-
-  trigger-builds:
-    name: Trigger Build Pipeline
+  # ═══════════════════════════════════════════════════════════════
+  # Build Python package (universal — pure Python, no compilation)
+  # ═══════════════════════════════════════════════════════════════
+  python-package:
+    name: Python Package
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
     steps:
-      - name: Determine version
-        id: version
+      - uses: actions/checkout@v4
+
+      - name: Print environment
         run: |
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
-          else
-            echo "version=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+          echo "=== OS ==="
+          uname -a
+          echo "=== Python ==="
+          python3 --version
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: pip install build wheel
+
+      - name: Build package
+        run: |
+          python -m build
+          ls -la dist/
+
+      - name: Verify package
+        run: |
+          pip install dist/*.whl
+          python -c "import xorzen; print(f'xorzen {xorzen.__version__} imported OK')"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-package
+          path: dist/*
+
+  # ═══════════════════════════════════════════════════════════════
+  # Build C++ parity harnesses for each platform
+  # ═══════════════════════════════════════════════════════════════
+  cpp-harness:
+    name: C++ Harness
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            arch: x86_64
+            artifact_name: xorzen-cpp-harness-linux-x86_64
+          - os: macos-13
+            arch: x86_64
+            artifact_name: xorzen-cpp-harness-macos-x86_64
+          - os: macos-14
+            arch: arm64
+            artifact_name: xorzen-cpp-harness-macos-arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Print environment
+        run: |
+          echo "=== OS ==="
+          uname -a
+          echo "=== Architecture ==="
+          uname -m
+          echo "=== Compiler ==="
+          g++ --version 2>/dev/null | head -1 || clang++ --version 2>/dev/null | head -1
+          echo "=== Python ==="
+          python3 --version
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PyTorch (provides LibTorch)
+        run: |
+          pip install torch==${LIBTORCH_VERSION} --index-url https://download.pytorch.org/whl/cpu
+          python -c "import torch; print(f'torch {torch.__version__} OK')"
+          TORCH_DIR=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')
+          echo "TORCH_DIR=$TORCH_DIR"
+          ls -la $TORCH_DIR/include/torch/torch.h || { echo "ERROR: torch.h not found"; exit 1; }
+          ls -la $TORCH_DIR/lib/libtorch*.* 2>/dev/null | head -3 || { echo "ERROR: libtorch not found"; exit 1; }
+
+      - name: Build parity harness
+        run: |
+          cd tests/cpp_parity/cpp
+          TORCH_DIR=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')
+          g++ -std=c++20 -O2 \
+            -I$TORCH_DIR/include -I$TORCH_DIR/include/torch/csrc/api/include \
+            -L$TORCH_DIR/lib parity_harness.cpp \
+            -ltorch -lc10 -ltorch_cpu -Wl,-rpath,$TORCH_DIR/lib \
+            -o parity_harness || { echo "ERROR: parity_harness build failed"; exit 1; }
+          ls -la parity_harness
+          ./parity_harness 2>&1 | head -2 || true
+
+      - name: Smoke test — verify harness runs
+        run: |
+          pip install --no-deps -e .
+          pip install numpy pydantic psutil einops tqdm scipy
+          python tests/cpp_parity/generators/generate_all_fixtures.py
+          python tests/cpp_parity/generators/write_simple_manifest.py
+          cd tests/cpp_parity/cpp
+          ./parity_harness 01_normalization ../fixtures/01_normalization /tmp/test_out
+          echo "Smoke test: harness runs OK"
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: tests/cpp_parity/cpp/parity_harness
+
+  # ═══════════════════════════════════════════════════════════════
+  # Summary job — verify all artifacts
+  # ═══════════════════════════════════════════════════════════════
+  release-summary:
+    name: Release Summary
+    runs-on: ubuntu-22.04
+    needs: [python-package, cpp-harness]
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Print build results
+        run: |
+          echo "=== Release Build Summary ==="
+          echo "Python package: ${{ needs.python-package.result }}"
+          echo "C++ harness (linux-x86_64): ${{ needs.cpp-harness.result }}"
+          echo ""
+          echo "Artifacts will be available for download after workflow completion."
+          echo ""
+          if [ "${{ needs.python-package.result }}" != "success" ]; then
+            echo "WARNING: Python package build failed"
           fi
-
-      - name: Create tag if not exists
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          echo "Releasing version: $VERSION"
-
-      - name: Trigger build workflow
-        uses: benc-uk/workflow-dispatch@v1
-        with:
-          workflow: build-native-kernels.yml
-          ref: ${{ github.ref }}
-
-      - name: Trigger test workflow
-        uses: benc-uk/workflow-dispatch@v1
-        with:
-          workflow: test-parity.yml
-          ref: ${{ github.ref }}
-
-  # The actual release creation happens in the build-native-kernels.yml
-  # workflow's "release" job, which only runs on tag pushes.
-  # This workflow just ensures the builds are triggered.
+          if [ "${{ needs.cpp-harness.result }}" != "success" ]; then
+            echo "WARNING: Some C++ harness builds failed (check matrix)"
+          fi

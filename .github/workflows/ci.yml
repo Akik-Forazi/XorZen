@@ -1,0 +1,302 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  LIBTORCH_VERSION: "2.14.1"
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  # ═══════════════════════════════════════════════════════════════
+  # Job A: Python tests + golden determinism
+  # ═══════════════════════════════════════════════════════════════
+  python-tests:
+    name: Python Tests
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Print environment
+        run: |
+          echo "=== OS ==="
+          uname -a
+          cat /etc/os-release | head -3
+          echo "=== Python ==="
+          python3 --version
+          echo "=== Architecture ==="
+          uname -m
+          echo "=== Environment variables ==="
+          env | grep -iE "python|torch|cuda|cmake|gcc|gxx" || true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install PyTorch (CPU)
+        run: |
+          pip install torch==${LIBTORCH_VERSION} --index-url https://download.pytorch.org/whl/cpu
+          python -c "import torch; print(f'torch {torch.__version__} OK')"
+
+      - name: Install XorZen (no-deps to preserve torch)
+        run: |
+          pip install --no-deps -e .
+          pip install numpy pydantic psutil einops tqdm scipy sentencepiece
+
+      - name: Verify import
+        run: |
+          python -c "import xorzen; print(f'xorzen imported OK, version={xorzen.__version__}')"
+
+      - name: Run golden determinism test
+        run: |
+          python tests/test_golden_parity.py
+
+      - name: Run SSM scan parity
+        run: |
+          python tests/test_ssm_scan_parity.py
+
+      - name: Run beam search regression
+        run: |
+          python tests/test_beam_search.py
+
+      - name: Upload test logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-test-logs
+          path: |
+            tests/*.json
+            tests/*.log
+
+  # ═══════════════════════════════════════════════════════════════
+  # Job B: C++ parity harnesses (build + test)
+  # ═══════════════════════════════════════════════════════════════
+  cpp-parity:
+    name: C++ Parity Tests
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Print environment
+        run: |
+          echo "=== OS ==="
+          uname -a
+          echo "=== Compiler ==="
+          g++ --version | head -1
+          echo "=== Python ==="
+          python3 --version
+          echo "=== Architecture ==="
+          uname -m
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install PyTorch (provides LibTorch headers)
+        run: |
+          pip install torch==${LIBTORCH_VERSION} --index-url https://download.pytorch.org/whl/cpu
+          python -c "import torch; print(f'torch {torch.__version__} OK')"
+
+      - name: Verify LibTorch headers exist
+        run: |
+          TORCH_DIR=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')
+          echo "TORCH_DIR=$TORCH_DIR"
+          ls -la $TORCH_DIR/include/torch/torch.h || { echo "ERROR: torch.h not found"; exit 1; }
+          ls -la $TORCH_DIR/lib/libtorch.so || { echo "ERROR: libtorch.so not found"; exit 1; }
+          echo "LibTorch headers and libraries verified."
+
+      - name: Install XorZen (for fixture generation)
+        run: |
+          pip install --no-deps -e .
+          pip install numpy pydantic psutil einops tqdm scipy
+
+      - name: Generate fixtures
+        run: |
+          python tests/cpp_parity/generators/generate_all_fixtures.py
+          python tests/cpp_parity/generators/write_simple_manifest.py
+
+      - name: Build C++ parity harness
+        run: |
+          cd tests/cpp_parity/cpp
+          ./build.sh
+          ls -la parity_harness
+
+      - name: Run component parity tests
+        run: |
+          python tests/cpp_parity/compare.py
+
+      - name: Build and run extended SSM tests
+        run: |
+          cd tests/cpp_parity/cpp
+          TORCH_DIR=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')
+          # parity_harness already built; run extended SSM
+          cd ../..
+          python tests/cpp_parity/test_extended_ssm.py
+
+      - name: Build and run training smoke test
+        run: |
+          cd tests/cpp_parity/cpp
+          TORCH_DIR=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')
+          g++ -std=c++20 -O2 \
+            -I$TORCH_DIR/include -I$TORCH_DIR/include/torch/csrc/api/include \
+            -L$TORCH_DIR/lib training_smoke_test.cpp \
+            -ltorch -lc10 -ltorch_cpu -Wl,-rpath,$TORCH_DIR/lib \
+            -o training_smoke_test
+          # Generate full model fixture first
+          cd ../..
+          python tests/cpp_parity/generators/generate_full_model_fixture.py
+          ./tests/cpp_parity/cpp/training_smoke_test tests/cpp_parity/fixtures/15_full_model tests/cpp_parity/cpp_output/training_smoke
+
+      - name: Build and run generation test
+        run: |
+          cd tests/cpp_parity/cpp
+          TORCH_DIR=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')
+          g++ -std=c++20 -O2 \
+            -I$TORCH_DIR/include -I$TORCH_DIR/include/torch/csrc/api/include \
+            -L$TORCH_DIR/lib generation_test.cpp \
+            -ltorch -lc10 -ltorch_cpu -Wl,-rpath,$TORCH_DIR/lib \
+            -o generation_test
+          cd ../..
+          ./tests/cpp_parity/cpp/generation_test tests/cpp_parity/fixtures/15_full_model tests/cpp_parity/cpp_output/generation
+
+      - name: Upload build artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpp-parity-logs
+          path: |
+            tests/cpp_parity/reports/
+            tests/cpp_parity/cpp_output/
+
+  # ═══════════════════════════════════════════════════════════════
+  # Job C: Python package import test
+  # ═══════════════════════════════════════════════════════════════
+  python-import:
+    name: Python Package Import
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Print environment
+        run: |
+          echo "=== OS ==="
+          uname -a
+          echo "=== Python ==="
+          python3 --version
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install PyTorch (CPU)
+        run: |
+          pip install torch==${LIBTORCH_VERSION} --index-url https://download.pytorch.org/whl/cpu
+          python -c "import torch; print(f'torch {torch.__version__} OK')"
+
+      - name: Install XorZen package
+        run: |
+          pip install --no-deps -e .
+          pip install numpy pydantic psutil einops tqdm scipy sentencepiece
+
+      - name: Import test
+        run: |
+          python -c "
+import xorzen
+print(f'xorzen version: {xorzen.__version__}')
+print(f'xorzen module path: {xorzen.__file__}')
+# Minimal model operation
+from xorzen.models.zero import zero_tiny_23k
+import torch
+torch.manual_seed(42)
+m = zero_tiny_23k(test_mode=False)
+m.eval()
+x = torch.randint(0, 8, (1, 4))
+with torch.no_grad():
+    out = m(input_ids=x, return_dict=True)
+print(f'forward OK: logits shape={out.logits.shape}')
+print('IMPORT TEST PASS')
+"
+
+  # ═══════════════════════════════════════════════════════════════
+  # Job D: Integration — Python → checkpoint → C++ → inference
+  # ═══════════════════════════════════════════════════════════════
+  integration:
+    name: Integration (Python → C++ → inference)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    needs: [python-tests, cpp-parity]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Print environment
+        run: |
+          echo "=== OS ==="
+          uname -a
+          echo "=== Compiler ==="
+          g++ --version | head -1
+          echo "=== Python ==="
+          python3 --version
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install PyTorch + deps
+        run: |
+          pip install torch==${LIBTORCH_VERSION} --index-url https://download.pytorch.org/whl/cpu
+          pip install --no-deps -e .
+          pip install numpy pydantic psutil einops tqdm scipy sentencepiece
+
+      - name: Generate full-model fixture
+        run: |
+          python tests/cpp_parity/generators/generate_full_model_fixture.py
+
+      - name: Convert checkpoint
+        run: |
+          python tests/cpp_parity/convert_checkpoint.py \
+            tests/cpp_parity/fixtures/15_full_model/state_dict.pt \
+            tests/cpp_parity/checkpoints/zero_tiny_23k_cpp.pt \
+            --report tests/cpp_parity/reports/integration_conversion.json
+
+      - name: Build and run end-to-end harness
+        run: |
+          cd tests/cpp_parity/cpp
+          ./build_e2e.sh
+          cd ../..
+          ./tests/cpp_parity/cpp/end_to_end_harness \
+            tests/cpp_parity/fixtures/15_full_model \
+            tests/cpp_parity/cpp_output/integration_e2e
+
+      - name: Build and run checkpoint lifecycle
+        run: |
+          cd tests/cpp_parity/cpp
+          TORCH_DIR=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')
+          g++ -std=c++20 -O2 \
+            -I$TORCH_DIR/include -I$TORCH_DIR/include/torch/csrc/api/include \
+            -L$TORCH_DIR/lib checkpoint_lifecycle.cpp \
+            -ltorch -lc10 -ltorch_cpu -Wl,-rpath,$TORCH_DIR/lib \
+            -o checkpoint_lifecycle
+          cd ../..
+          ./tests/cpp_parity/cpp/checkpoint_lifecycle \
+            tests/cpp_parity/fixtures/15_full_model \
+            tests/cpp_parity/cpp_output/integration_lifecycle
+
+      - name: Upload integration results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-results
+          path: |
+            tests/cpp_parity/reports/
+            tests/cpp_parity/cpp_output/

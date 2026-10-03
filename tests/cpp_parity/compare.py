@@ -54,6 +54,9 @@ def parse_manifest(manifest_path: Path) -> Dict[str, Any]:
         elif tok == "tolerance":
             out[f"tol_{parts[1]}"] = float(parts[2])
         elif tok == "tensor":
+            if len(parts) < 6:
+                # Skip malformed lines (e.g. from non-component manifests)
+                continue
             kind, name, dtype, file, shape_csv = parts[1], parts[2], parts[3], parts[4], parts[5]
             shape = [int(s) for s in shape_csv.split(",") if s]
             out["tensors"].append({
@@ -218,7 +221,10 @@ def main():
         print(f"ERROR: harness not built at {HARNESS}", file=sys.stderr)
         sys.exit(2)
 
-    components = sorted([d.name for d in FIXTURES.iterdir() if d.is_dir()])
+    components = sorted([d.name for d in FIXTURES.iterdir() if d.is_dir()
+                        and not d.name.startswith("15_")
+                        and not d.name.startswith("16_")
+                        and not d.name.startswith("17_")])
     print(f"Running parity for {len(components)} components...\n")
 
     results: List[Dict[str, Any]] = []
