@@ -1,0 +1,613 @@
+{
+  "metadata": {
+    "model": "xorzen_tiny_23k",
+    "seed": 42,
+    "batch_size": 2,
+    "seq_len": 16,
+    "mode": "eval",
+    "pytorch_version": "2.14.1+cpu",
+    "python_version": "3.12.14",
+    "git_commit": "ffb9f0bd242ef2b2273e888c28ebd34200905e73",
+    "git_branch": "main",
+    "git_dirty": true,
+    "pt_file": "golden_reference.pt",
+    "pt_sha256": "6906aee00addcd56a72c441c5eeb63d9466bec4dccb5911e294ed421733f13f8",
+    "pt_size_bytes": 37641,
+    "num_tensors": 40,
+    "created_by": "tests/test_golden_parity.py",
+    "description": "Golden reference intermediate tensors from a deterministic zero_tiny_23k forward pass. Used for regression detection and as the expected-output baseline for the C++ port."
+  },
+  "config": {
+    "model_name": "xorzen_tiny_23k",
+    "model_size": "23K",
+    "architecture": "xorzen_zero",
+    "version": "1.0.0",
+    "vocab_size": 8,
+    "pad_token_id": 0,
+    "context_length": 32,
+    "hidden_size": 8,
+    "num_layers": 1,
+    "num_attention_heads": 2,
+    "router_type": "adaptive",
+    "cot_type": "latent",
+    "quantization": "progressive",
+    "dropout": 0.0,
+    "attention_dropout": 0.0,
+    "hidden_dropout": 0.0,
+    "hidden_act": "gelu",
+    "intermediate_act": "gelu",
+    "initializer_range": 0.02,
+    "layer_norm_eps": 1e-05,
+    "gradient_checkpointing": true,
+    "use_cache": true,
+    "tie_word_embeddings": true,
+    "max_depth": 1,
+    "min_depth": 1,
+    "width_choices": [
+      8
+    ],
+    "path_choices": 3,
+    "pathway_top_k": 2,
+    "compute_budget": 1.0,
+    "adaptive_halting": false,
+    "halting_threshold": 0.9,
+    "router_hidden_dim": 1,
+    "router_num_layers": 1,
+    "router_dropout": 0.1,
+    "router_temperature": 1.0,
+    "router_temperature_annealing": true,
+    "load_balancing_weight": 0.0001,
+    "expert_capacity_factor": 1.25,
+    "routing_loss_weight": 0.0001,
+    "load_balance_loss_weight": 0.0001,
+    "cot_dim": 2,
+    "cot_components": 6,
+    "cot_update_method": "gru",
+    "cot_provable": true,
+    "cot_consistency_weight": 0.1,
+    "cot_diversity_weight": 0.01,
+    "cot_sparsity_weight": 0.001,
+    "cot_orthogonality_weight": 0.05,
+    "local_window_size": 128,
+    "low_rank_dim": 96,
+    "ssm_state_dim": 16,
+    "ssm_kernel_size": 3,
+    "use_sliced_ffn": true,
+    "width_div_weight": 0.1,
+    "path_div_weight": 0.2,
+    "unify_load_balance": true,
+    "cost_aware_routing": true,
+    "eval_routing_noise": 0.15,
+    "expert_count": 1,
+    "top_k_experts": 1,
+    "expert_hidden_multiplier": 4.0,
+    "shard_experts": false,
+    "expert_shard_dir": "experts/",
+    "max_expert_cache": 24,
+    "merger_hidden_multiplier": 2.0,
+    "merger_num_layers": 1,
+    "merger_type": "gated",
+    "quant_start_step": 1000,
+    "quant_end_step": 100000,
+    "quant_levels": [
+      32,
+      16,
+      12,
+      8,
+      4
+    ],
+    "quant_method": "symmetric",
+    "target_active_ratio": 0.1,
+    "max_active_params_per_token": 50000000
+  },
+  "tensors": {
+    "input_ids": {
+      "shape": [
+        2,
+        16
+      ],
+      "dtype": "int64",
+      "numel": 32,
+      "min": 0,
+      "max": 7,
+      "mean_float": 4.0625,
+      "std_float": 2.1241695880889893
+    },
+    "labels": {
+      "shape": [
+        2,
+        16
+      ],
+      "dtype": "int64",
+      "numel": 32,
+      "min": 0,
+      "max": 7,
+      "mean_float": 3.125,
+      "std_float": 2.196037530899048
+    },
+    "token_emb_out": {
+      "shape": [
+        2,
+        16,
+        8
+      ],
+      "dtype": "float32",
+      "numel": 256,
+      "min": -0.04948844760656357,
+      "max": 0.055812444537878036,
+      "mean": -0.0011052273912355304,
+      "std": 0.02233896031975746
+    },
+    "pos_emb_out": {
+      "shape": [
+        2,
+        16,
+        8
+      ],
+      "dtype": "float32",
+      "numel": 256,
+      "min": -0.06200523301959038,
+      "max": 0.04653041437268257,
+      "mean": -0.0017536001978442073,
+      "std": 0.02181193418800831
+    },
+    "combined_embeddings": {
+      "shape": [
+        2,
+        16,
+        8
+      ],
+      "dtype": "float32",
+      "numel": 256,
+      "min": -0.08409297466278076,
+      "max": 0.10234285891056061,
+      "mean": -0.0028588275890797377,
+      "std": 0.03134038671851158
+    },
+    "router_feature_encoder_out": {
+      "shape": [
+        32,
+        32
+      ],
+      "dtype": "float32",
+      "numel": 1024,
+      "min": -0.16997084021568298,
+      "max": 2.923139810562134,
+      "mean": 0.28437572717666626,
+      "std": 0.5885717272758484
+    },
+    "depth_logits": {
+      "shape": [
+        2,
+        16,
+        1
+      ],
+      "dtype": "float32",
+      "numel": 32,
+      "min": -0.12129221111536026,
+      "max": 0.04492337256669998,
+      "mean": -0.04142823442816734,
+      "std": 0.04128901660442352
+    },
+    "depth_probs": {
+      "shape": [
+        2,
+        16,
+        1
+      ],
+      "dtype": "float32",
+      "numel": 32,
+      "min": 0.4311574399471283,
+      "max": 0.6199817061424255,
+      "mean": 0.5103604197502136,
+      "std": 0.04636994004249573
+    },
+    "depth_mask": {
+      "shape": [
+        2,
+        16,
+        1
+      ],
+      "dtype": "float32",
+      "numel": 32,
+      "min": 1.0,
+      "max": 1.0,
+      "mean": 1.0,
+      "std": 0.0
+    },
+    "width_logits": {
+      "shape": [
+        2,
+        16,
+        1
+      ],
+      "dtype": "float32",
+      "numel": 32,
+      "min": -0.12773501873016357,
+      "max": 0.020597293972969055,
+      "mean": -0.04978903755545616,
+      "std": 0.04078639671206474
+    },
+    "width_probs": {
+      "shape": [
+        2,
+        16,
+        1
+      ],
+      "dtype": "float32",
+      "numel": 32,
+      "min": 1.0,
+      "max": 1.0,
+      "mean": 1.0,
+      "std": 0.0
+    },
+    "width_idx": {
+      "shape": [
+        2,
+        16
+      ],
+      "dtype": "int64",
+      "numel": 32,
+      "min": 0,
+      "max": 0,
+      "mean_float": 0.0,
+      "std_float": 0.0
+    },
+    "path_logits": {
+      "shape": [
+        2,
+        16,
+        3
+      ],
+      "dtype": "float32",
+      "numel": 96,
+      "min": -0.21939577162265778,
+      "max": 0.20174992084503174,
+      "mean": -0.021586932241916656,
+      "std": 0.11918684095144272
+    },
+    "path_probs": {
+      "shape": [
+        2,
+        16,
+        3
+      ],
+      "dtype": "float32",
+      "numel": 96,
+      "min": 0.22675523161888123,
+      "max": 0.458456814289093,
+      "mean": 0.3333333432674408,
+      "std": 0.05103468894958496
+    },
+    "expert_logits": {
+      "shape": [
+        2,
+        16,
+        1
+      ],
+      "dtype": "float32",
+      "numel": 32,
+      "min": -0.12248865514993668,
+      "max": 0.13713783025741577,
+      "mean": 0.0005893202032893896,
+      "std": 0.05249176174402237
+    },
+    "expert_probs": {
+      "shape": [
+        2,
+        16,
+        1
+      ],
+      "dtype": "float32",
+      "numel": 32,
+      "min": 1.0,
+      "max": 1.0,
+      "mean": 1.0,
+      "std": 0.0
+    },
+    "expert_indices": {
+      "shape": [
+        2,
+        16,
+        1
+      ],
+      "dtype": "int64",
+      "numel": 32,
+      "min": 0,
+      "max": 0,
+      "mean_float": 0.0,
+      "std_float": 0.0
+    },
+    "expert_weights": {
+      "shape": [
+        2,
+        16,
+        1
+      ],
+      "dtype": "float32",
+      "numel": 32,
+      "min": 1.0,
+      "max": 1.0,
+      "mean": 1.0,
+      "std": 0.0
+    },
+    "complexity": {
+      "shape": [
+        2,
+        16,
+        1
+      ],
+      "dtype": "float32",
+      "numel": 32,
+      "min": 0.4962058365345001,
+      "max": 0.509706437587738,
+      "mean": 0.5033414959907532,
+      "std": 0.0040172673761844635
+    },
+    "uncertainty": {
+      "shape": [
+        2,
+        16,
+        1
+      ],
+      "dtype": "float32",
+      "numel": 32,
+      "min": 0.45073938369750977,
+      "max": 0.5132296085357666,
+      "mean": 0.4813576340675354,
+      "std": 0.017630793154239655
+    },
+    "block_0_input": {
+      "shape": [
+        2,
+        16,
+        8
+      ],
+      "dtype": "float32",
+      "numel": 256,
+      "min": -0.08409297466278076,
+      "max": 0.10234285891056061,
+      "mean": -0.0028588275890797377,
+      "std": 0.03134038671851158
+    },
+    "block_0_output": {
+      "shape": [
+        2,
+        16,
+        8
+      ],
+      "dtype": "float32",
+      "numel": 256,
+      "min": -0.07873491942882538,
+      "max": 0.10443528741598129,
+      "mean": -0.002877633785828948,
+      "std": 0.030928121879696846
+    },
+    "block_0_local_out": {
+      "shape": [
+        2,
+        16,
+        8
+      ],
+      "dtype": "float32",
+      "numel": 256,
+      "min": -0.005497962236404419,
+      "max": 0.005869961343705654,
+      "mean": -3.576889866963029e-05,
+      "std": 0.001413813210092485
+    },
+    "block_0_low_rank_out": {
+      "shape": [
+        2,
+        16,
+        8
+      ],
+      "dtype": "float32",
+      "numel": 256,
+      "min": -0.05358429253101349,
+      "max": 0.04006214812397957,
+      "mean": 0.00013206445146352053,
+      "std": 0.014305834658443928
+    },
+    "block_0_ssm_out": {
+      "shape": [
+        2,
+        16,
+        8
+      ],
+      "dtype": "float32",
+      "numel": 256,
+      "min": -0.006909210700541735,
+      "max": 0.007332279812544584,
+      "mean": 4.7823836212046444e-05,
+      "std": 0.0025606427807360888
+    },
+    "block_0_ffn_out": {
+      "shape": [
+        2,
+        16,
+        8
+      ],
+      "dtype": "float32",
+      "numel": 256,
+      "min": -0.003557124175131321,
+      "max": 0.0036096551921218634,
+      "mean": 2.720310294535011e-05,
+      "std": 0.001298106275498867
+    },
+    "moe_input": {
+      "shape": [
+        32,
+        8
+      ],
+      "dtype": "float32",
+      "numel": 256,
+      "min": -0.07873491942882538,
+      "max": 0.10443528741598129,
+      "mean": -0.002877633785828948,
+      "std": 0.030928121879696846
+    },
+    "moe_output": {
+      "shape": [
+        32,
+        8
+      ],
+      "dtype": "float32",
+      "numel": 256,
+      "min": -8.440552505817323e-07,
+      "max": 7.865357929404126e-07,
+      "mean": 1.6051656004378856e-08,
+      "std": 2.112216606064976e-07
+    },
+    "moe_load_balance_loss": {
+      "shape": [],
+      "dtype": "float32",
+      "numel": 1,
+      "min": 0.0,
+      "max": 0.0,
+      "mean": 0.0,
+      "std": 0.0
+    },
+    "merger_hass_input": {
+      "shape": [
+        2,
+        16,
+        8
+      ],
+      "dtype": "float32",
+      "numel": 256,
+      "min": -0.07873491942882538,
+      "max": 0.10443528741598129,
+      "mean": -0.002877633785828948,
+      "std": 0.030928121879696846
+    },
+    "merger_moe_input": {
+      "shape": [
+        2,
+        16,
+        8
+      ],
+      "dtype": "float32",
+      "numel": 256,
+      "min": -8.440552505817323e-07,
+      "max": 7.865357929404126e-07,
+      "mean": 1.6051656004378856e-08,
+      "std": 2.112216606064976e-07
+    },
+    "merger_cot_input": {
+      "shape": [
+        2,
+        16,
+        12
+      ],
+      "dtype": "float32",
+      "numel": 384,
+      "min": 0.0,
+      "max": 0.0,
+      "mean": 0.0,
+      "std": 0.0
+    },
+    "merger_output": {
+      "shape": [
+        2,
+        16,
+        8
+      ],
+      "dtype": "float32",
+      "numel": 256,
+      "min": -2.2240140438079834,
+      "max": 2.196033000946045,
+      "mean": 1.862645149230957e-08,
+      "std": 0.9393884539604187
+    },
+    "final_norm_out": {
+      "shape": [
+        2,
+        16,
+        8
+      ],
+      "dtype": "float32",
+      "numel": 256,
+      "min": -2.3238327503204346,
+      "max": 2.432590961456299,
+      "mean": 1.4901161193847656e-08,
+      "std": 1.001953125
+    },
+    "logits": {
+      "shape": [
+        2,
+        16,
+        8
+      ],
+      "dtype": "float32",
+      "numel": 256,
+      "min": -0.16387687623500824,
+      "max": 0.1782790869474411,
+      "mean": 0.010169971734285355,
+      "std": 0.06799592822790146
+    },
+    "lm_loss": {
+      "shape": [],
+      "dtype": "float32",
+      "numel": 1,
+      "min": 2.0818700790405273,
+      "max": 2.0818700790405273,
+      "mean": 2.0818700790405273,
+      "std": 0.0
+    },
+    "routing_loss": {
+      "shape": [],
+      "dtype": "float32",
+      "numel": 1,
+      "min": 4.81357637909241e-05,
+      "max": 4.81357637909241e-05,
+      "mean": 4.81357637909241e-05,
+      "std": 0.0
+    },
+    "load_balance_loss": {
+      "shape": [],
+      "dtype": "float32",
+      "numel": 1,
+      "min": 0.0,
+      "max": 0.0,
+      "mean": 0.0,
+      "std": 0.0
+    },
+    "cot_consistency_loss": {
+      "shape": [],
+      "dtype": "float32",
+      "numel": 1,
+      "min": 0.0,
+      "max": 0.0,
+      "mean": 0.0,
+      "std": 0.0
+    },
+    "total_loss": {
+      "shape": [],
+      "dtype": "float32",
+      "numel": 1,
+      "min": 2.081918239593506,
+      "max": 2.081918239593506,
+      "mean": 2.081918239593506,
+      "std": 0.0
+    }
+  },
+  "output_summary": {
+    "logits_shape": [
+      2,
+      16,
+      8
+    ],
+    "lm_loss": 2.0818700790405273,
+    "routing_loss": 4.81357637909241e-05,
+    "load_balance_loss": 0.0,
+    "cot_consistency_loss": 0.0,
+    "total_loss": 2.081918239593506,
+    "moe_load_balance_loss": 0.0
+  },
+  "determinism": {
+    "verified": true,
+    "compared_tensors": 40,
+    "mismatches": []
+  }
+}
