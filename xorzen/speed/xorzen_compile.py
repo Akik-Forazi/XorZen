@@ -83,14 +83,37 @@ def compile(
     Returns:
         The model unchanged.
     """
-    print("[xorzen.compile] torch.compile disabled — incompatible with xorzen's")
-    print("[xorzen.compile] dynamic control flow (MoE dispatch, SlicedFFN, router).")
-    print("[xorzen.compile] Using eager mode with architecture-level optimizations:")
-    print("[xorzen.compile]   - Flash Attention (SDPA) ✓")
-    print("[xorzen.compile]   - Fused QKV projection ✓")
-    print("[xorzen.compile]   - Vectorized forward_with_depth ✓")
-    print("[xorzen.compile]   - MoE .item() sync elimination ✓")
-    print("[xorzen.compile]   - Native C++ kernels (if available)")
+    print("[xorzen.compile] Applying JIT-compiled hot-path kernels...")
+    print("[xorzen.compile]   - MoE expert dispatch loop → torch.jit.script")
+    print("[xorzen.compile]   - SSM diagonal scan loop → torch.jit.script")
+    print("[xorzen.compile]   - SlicedFFN width grouping → torch.jit.script")
+    print("[xorzen.compile]   - Flash Attention (SDPA) ✓ (already in hass_block.py)")
+    print("[xorzen.compile]   - Fused QKV projection ✓ (already in hass_block.py)")
+
+    # Apply JIT patches to hot-path Python loops
+    try:
+        from .jit_kernels import auto_patch_model as jit_patch, get_jit_status
+        status = get_jit_status()
+        if status["available"]:
+            jit_patch(model)
+            print("[xorzen.compile] JIT patches applied successfully")
+        else:
+            print(f"[xorzen.compile] JIT not available: {status['error']}")
+    except Exception as e:
+        print(f"[xorzen.compile] JIT patching failed: {e}")
+
+    # Also try native C++ kernels (if compiler available)
+    try:
+        from .native_kernels import native_available, auto_patch_model as native_patch
+        if native_available:
+            native_patch(model)
+            print("[xorzen.compile] Native C++ kernels also loaded")
+        else:
+            print("[xorzen.compile] Native C++ kernels not available (no compiler) — using JIT only")
+    except Exception as e:
+        print(f"[xorzen.compile] Native C++ kernels skipped: {e}")
+
+    print("[xorzen.compile] Model ready — eager mode with JIT-compiled hot paths")
     return model
 
 

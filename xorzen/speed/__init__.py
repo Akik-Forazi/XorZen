@@ -19,6 +19,13 @@ from .native_kernels import (
     get_native_status,
     auto_patch_model,
 )
+from .jit_kernels import (
+    jit_available,
+    jit_moe_dispatch,
+    jit_diagonal_ssm_scan,
+    jit_width_group_indices,
+    get_jit_status,
+)
 
 __all__ = [
     "SpeedBooster", "boost_model", "SpeedProfile",
@@ -29,4 +36,7 @@ __all__ = [
     "native_available", "fused_rmsnorm", "fused_gelu", "fused_swiglu",
     "fused_layernorm_gelu", "expert_dispatch", "diagonal_ssm_scan",
     "get_native_status", "auto_patch_model",
+    # JIT kernels (torch.jit.script — no C++ compiler needed)
+    "jit_available", "jit_moe_dispatch", "jit_diagonal_ssm_scan",
+    "jit_width_group_indices", "get_jit_status",
 ]
