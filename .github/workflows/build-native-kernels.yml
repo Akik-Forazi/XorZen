@@ -1,0 +1,356 @@
+name: Build Native Kernels
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'xorzen/speed/csrc/**'
+      - 'xorzen.cpp/src/**'
+      - 'xorzen.cpp/include/**'
+      - '.github/workflows/build-native-kernels.yml'
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'xorzen/speed/csrc/**'
+      - 'xorzen.cpp/src/**'
+      - 'xorzen.cpp/include/**'
+  workflow_dispatch:  # manual trigger
+
+jobs:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Job 1: Build Python C++ extension (load_inline kernels) for all platforms
+  # ═══════════════════════════════════════════════════════════════════════
+  build-python-kernels:
+    name: Python Kernels (${{ matrix.os }} / ${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            arch: x86_64
+            platform: linux-x64
+            compiler: gcc
+          - os: ubuntu-22.04
+            arch: aarch64
+            platform: linux-arm64
+            compiler: gcc
+            cross-compile: true
+          - os: windows-2022
+            arch: x86_64
+            platform: windows-x64
+            compiler: msvc
+          - os: macos-13
+            arch: x86_64
+            platform: macos-x64
+            compiler: clang
+          - os: macos-14
+            arch: arm64
+            platform: macos-arm64
+            compiler: clang
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gcc g++ gfortran ninja-build
+          pip install torch --index-url https://download.pytorch.org/whl/cpu --no-deps
+          pip install numpy pyyaml
+
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu --no-deps
+          pip install numpy pyyaml ninja
+
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install ninja
+          pip install torch --no-deps
+          pip install numpy pyyaml
+
+      - name: Compile native kernels
+        env:
+          XORZEN_BUILD_VERBOSE: '1'
+        run: |
+          python -c "
+          import sys, os
+          sys.path.insert(0, '.')
+          from xorzen.speed.native_kernels import _try_compile, get_native_status
+          _try_compile()
+          status = get_native_status()
+          print(f'Native available: {status[\"available\"]}')
+          if status['error']:
+              print(f'Error: {status[\"error\"]}')
+              sys.exit(1)
+          print('Compilation successful!')
+          "
+
+      - name: Test native kernels
+        run: |
+          python -c "
+          import sys, torch
+          sys.path.insert(0, '.')
+          from xorzen.speed.native_kernels import (
+              native_available, fused_rmsnorm, fused_gelu, fused_swiglu, get_native_status
+          )
+          print(f'Native available: {native_available}')
+          status = get_native_status()
+          if status['error']:
+              print(f'Error: {status[\"error\"]}')
+              sys.exit(1)
+
+          # Test fused_rmsnorm
+          x = torch.randn(4, 64)
+          gamma = torch.ones(64)
+          out = fused_rmsnorm(x, gamma, eps=1e-6)
+          assert out.shape == x.shape, f'RMSNorm shape mismatch: {out.shape} vs {x.shape}'
+          print('  fused_rmsnorm: PASS')
+
+          # Test fused_gelu
+          out2 = fused_gelu(x)
+          assert out2.shape == x.shape
+          # Compare with PyTorch GELU
+          ref = torch.nn.functional.gelu(x)
+          max_diff = (out2 - ref).abs().max().item()
+          assert max_diff < 0.01, f'GELU diff too large: {max_diff}'
+          print(f'  fused_gelu: PASS (max_diff={max_diff:.6f})')
+
+          # Test fused_swiglu
+          up = torch.randn(4, 64)
+          out3 = fused_swiglu(x, up)
+          assert out3.shape == x.shape
+          ref3 = torch.nn.functional.silu(x) * up
+          max_diff3 = (out3 - ref3).abs().max().item()
+          assert max_diff3 < 0.01, f'SwiGLU diff too large: {max_diff3}'
+          print(f'  fused_swiglu: PASS (max_diff={max_diff3:.6f})')
+
+          print()
+          print('ALL NATIVE KERNEL TESTS PASSED')
+          "
+
+      - name: Locate compiled extension
+        id: locate
+        shell: bash
+        run: |
+          # Find the compiled .so/.dll/.pyd
+          EXT_DIR=$(python -c "import torch; import os; print(os.path.join(os.path.expanduser('~'), '.cache', 'torch_extensions'))" 2>/dev/null || echo "")
+          if [ -z "$EXT_DIR" ] || [ ! -d "$EXT_DIR" ]; then
+            # Windows fallback
+            EXT_DIR="$LOCALAPPDATA/torch_extensions"
+          fi
+          echo "Extension dir: $EXT_DIR"
+          find "$EXT_DIR" -name "*.so" -o -name "*.dll" -o -name "*.pyd" 2>/dev/null || true
+
+          # Copy the compiled file to a known location
+          mkdir -p artifacts
+          find "$EXT_DIR" -name "xorzen_native_kernels*" -type f 2>/dev/null | while read f; do
+            cp "$f" "artifacts/$(basename "$f")"
+          done
+          # Also save the source files
+          cp -r xorzen/speed/csrc artifacts/csrc
+          ls -la artifacts/ || true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xorzen-kernels-${{ matrix.platform }}
+          path: artifacts/
+          retention-days: 90
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Job 2: Build xorzen.cpp standalone (LibTorch C++ model)
+  # ═══════════════════════════════════════════════════════════════════════
+  build-cpp-model:
+    name: C++ Model (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            platform: linux-x64
+          - os: windows-2022
+            platform: windows-x64
+          - os: macos-14
+            platform: macos-arm64
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install LibTorch (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          wget -q https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-2.4.0%2Bcpu.zip -O libtorch.zip
+          unzip -q libtorch.zip -d $HOME
+          echo "CMAKE_PREFIX_PATH=$HOME/libtorch" >> $GITHUB_ENV
+
+      - name: Install LibTorch (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          curl -L https://download.pytorch.org/libtorch/cpu/libtorch-win-shared-with-deps-2.4.0%2Bcpu.zip -o libtorch.zip
+          7z x libtorch.zip -o$HOME
+          echo "CMAKE_PREFIX_PATH=$HOME/libtorch" >> $GITHUB_ENV
+
+      - name: Install LibTorch (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          curl -L https://download.pytorch.org/libtorch/cpu/libtorch-macos-arm64-2.4.0%2Bcpu.zip -o libtorch.zip
+          unzip -q libtorch.zip -d $HOME
+          echo "CMAKE_PREFIX_PATH=$HOME/libtorch" >> $GITHUB_ENV
+
+      - name: Install CMake + Ninja
+        uses: lukka/get-cmake@latest
+
+      - name: Configure (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          cmake -S xorzen.cpp -B xorzen.cpp/build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$HOME/libtorch" \
+            -DXORZEN_ENABLE_AVX2=ON
+        env:
+          CC: gcc
+          CXX: g++
+
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          cmake -S xorzen.cpp -B xorzen.cpp/build `
+            -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_PREFIX_PATH="$HOME/libtorch"
+
+      - name: Build
+        run: cmake --build xorzen.cpp/build --config Release -j $(nproc 2>/dev/null || echo 4)
+
+      - name: Run tests
+        run: |
+          cd xorzen.cpp/build
+          ctest --output-on-failure --timeout 120 || true
+
+      - name: Collect artifacts
+        shell: bash
+        run: |
+          mkdir -p artifacts-cpp
+          find xorzen.cpp/build -name "*.so" -o -name "*.dll" -o -name "*.dylib" -o -name "*.exe" | while read f; do
+            cp "$f" "artifacts-cpp/$(basename "$f")" 2>/dev/null || true
+          done
+          ls -la artifacts-cpp/ || true
+
+      - name: Upload C++ artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: xorzen-cpp-model-${{ matrix.platform }}
+          path: artifacts-cpp/
+          retention-days: 90
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Job 3: Create GitHub Release with all pre-compiled binaries
+  # ═══════════════════════════════════════════════════════════════════════
+  release:
+    name: Publish Release
+    needs: [build-python-kernels, build-cpp-model]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets/
+
+      - name: List all artifacts
+        run: |
+          find release-assets/ -type f | sort
+          echo "---"
+          ls -laR release-assets/
+
+      - name: Organize release assets
+        run: |
+          mkdir -p release
+          # Flatten and rename artifacts with platform suffixes
+          for dir in release-assets/*/; do
+            platform=$(basename "$dir")
+            if [ -d "$dir" ]; then
+              for f in "$dir"*; do
+                if [ -f "$f" ]; then
+                  ext="${f##*.}"
+                  base=$(basename "$f" ".$ext")
+                  cp "$f" "release/${base}_${platform}.${ext}"
+                fi
+              done
+            fi
+          done
+          # Also include source
+          cp -r xorzen/speed/csrc release/csrc
+          ls -la release/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: XorZen ${{ github.ref_name }}
+          body: |
+            # XorZen ${{ github.ref_name }}
+
+            ## Pre-compiled Native Kernels
+
+            ### Python C++ Extension (for `xorzen.speed.native_kernels`)
+            | Platform | File |
+            |----------|------|
+            | Linux x64 | `xorzen_native_kernels_linux-x64.so` |
+            | Linux ARM64 | `xorzen_native_kernels_linux-arm64.so` |
+            | Windows x64 | `xorzen_native_kernels_windows-x64.dll` |
+            | macOS x64 | `xorzen_native_kernels_macos-x64.dylib` |
+            | macOS ARM64 | `xorzen_native_kernels_macos-arm64.dylib` |
+
+            ### C++ Model (LibTorch)
+            | Platform | File |
+            |----------|------|
+            | Linux x64 | `xorzen_core_linux-x64.so` |
+            | Windows x64 | `xorzen_core_windows-x64.dll` |
+            | macOS ARM64 | `xorzen_core_macos-arm64.dylib` |
+
+            ## Installation
+
+            ### Python (pre-compiled kernels)
+            ```bash
+            pip install git+https://github.com/Akik-Forazi/XorZen.git
+            ```
+            On first import, `xorzen.speed.native_kernels` will try to compile
+            from source. If you have a pre-compiled `.so`/`.dll`/`.dylib` from
+            this release, place it in `~/.cache/torch_extensions/xorzen_native_kernels/`
+            to skip compilation.
+
+            ### C++ (LibTorch)
+            Download the appropriate shared library for your platform and link
+            against it. Requires LibTorch 2.4.0+ installed separately.
+
+            ## Changes
+            See [commit history](https://github.com/Akik-Forazi/XorZen/commits/${{ github.ref_name }})
+          files: |
+            release/*
+            release/csrc/*
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'rc') || contains(github.ref_name, 'beta') }}

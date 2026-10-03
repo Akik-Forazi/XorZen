@@ -1,0 +1,52 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g. v1.0.2)'
+        required: true
+
+jobs:
+  # This workflow is triggered by pushing a tag like `git tag v1.0.2 && git push origin v1.0.2`
+  # It will:
+  # 1. Run the build-native-kernels workflow (builds all platforms)
+  # 2. Run the parity tests
+  # 3. Create a GitHub release with all pre-compiled binaries
+
+  trigger-builds:
+    name: Trigger Build Pipeline
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Determine version
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create tag if not exists
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          echo "Releasing version: $VERSION"
+
+      - name: Trigger build workflow
+        uses: benc-uk/workflow-dispatch@v1
+        with:
+          workflow: build-native-kernels.yml
+          ref: ${{ github.ref }}
+
+      - name: Trigger test workflow
+        uses: benc-uk/workflow-dispatch@v1
+        with:
+          workflow: test-parity.yml
+          ref: ${{ github.ref }}
+
+  # The actual release creation happens in the build-native-kernels.yml
+  # workflow's "release" job, which only runs on tag pushes.
+  # This workflow just ensures the builds are triggered.

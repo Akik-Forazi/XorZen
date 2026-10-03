@@ -1,0 +1,133 @@
+name: Parity Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  python-tests:
+    name: Python Parity Tests
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu --no-deps
+          pip install numpy pyyaml tokenizers datasets cryptography psutil einops pydantic
+
+      - name: Install xorzen (no-deps to preserve torch)
+        run: pip install --no-deps -e .
+
+      - name: Run model tests
+        run: |
+          python -c "
+          import torch, sys
+          from xorzen.models.zero import zero_tiny_23k, zero_1M, zero_10M
+
+          for name, factory in [('zero_tiny_23k', zero_tiny_23k), ('zero_1M', zero_1M), ('zero_10M', zero_10M)]:
+              model = factory(test_mode=False)
+              model.eval()
+              ids = torch.randint(0, model.config.vocab_size, (2, min(model.config.context_length, 32)))
+              lbl = torch.randint(0, model.config.vocab_size, (2, min(model.config.context_length, 32)))
+              with torch.no_grad():
+                  out = model(input_ids=ids, labels=lbl, return_dict=True)
+              assert out.logits is not None
+              assert out.loss is not None
+              print(f'  {name}: PASS (loss={out.loss.item():.4f})')
+
+              # Backward
+              model.train()
+              out2 = model(input_ids=ids, labels=lbl, return_dict=True)
+              out2.loss.backward()
+              n_grads = sum(1 for p in model.parameters() if p.grad is not None)
+              print(f'  {name} backward: PASS ({n_grads} params with grads)')
+
+          print()
+          print('ALL PYTHON MODEL TESTS PASSED')
+          "
+
+      - name: Run tokenizer tests
+        run: |
+          python -c "
+          import xorzen
+          tokenizers = xorzen.list_pretrained()
+          print(f'Available tokenizers: {tokenizers}')
+          for name in tokenizers:
+              tok = xorzen.load_pretrained(name)
+              test = 'Hello XORZEN world!'
+              ids = tok.encode(test)
+              decoded = tok.decode(ids)
+              assert decoded == test, f'{name} round-trip failed: {decoded!r} != {test!r}'
+              print(f'  {name}: PASS (vocab={tok.get_vocab_size()})')
+          print()
+          print('ALL TOKENIZER TESTS PASSED')
+          "
+
+      - name: Run .xorm encryption tests
+        run: |
+          python -c "
+          import torch, tempfile, os
+          from xorzen.models.zero import zero_1M
+          from xorzen.inference.xorm_format import XormWriter, XormReader
+          from xorzen.inference.xorm_crypto import License
+
+          model = zero_1M(test_mode=False)
+
+          # v1 (plain)
+          with tempfile.TemporaryDirectory() as tmp:
+              path = os.path.join(tmp, 'test.xorm')
+              w = XormWriter('test', 'zero', 'lm', {'vocab_size': model.config.vocab_size}, {}, encrypt=False)
+              w.save(model, path)
+              r = XormReader(path)
+              sd = r.load_state_dict()
+              assert len(sd) > 0
+              print('  v1 (plain): PASS')
+
+          # v2 (encrypted)
+          with tempfile.TemporaryDirectory() as tmp:
+              path = os.path.join(tmp, 'test_enc.xorm')
+              lic = License(owner='Test', model_id='test', allowed_uses=['inference'], expiry=None)
+              w = XormWriter('test', 'zero', 'lm', {'vocab_size': model.config.vocab_size}, {}, encrypt=True, license=lic)
+              w.save(model, path)
+              r = XormReader(path, intended_use='inference')
+              assert r.is_encrypted
+              sd = r.load_state_dict()
+              assert len(sd) > 0
+              print('  v2 (encrypted): PASS')
+
+          print()
+          print('ALL .XORM TESTS PASSED')
+          "
+
+      - name: Run Flash Attention parity test
+        run: |
+          python -c "
+          import torch, torch.nn.functional as F, math
+
+          torch.manual_seed(42)
+          B, H, S, D = 2, 4, 64, 16
+          q = torch.randn(B, H, S, D)
+          k = torch.randn(B, H, S, D)
+          v = torch.randn(B, H, S, D)
+
+          # Manual attention
+          attn = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(D)
+          attn = F.softmax(attn, dim=-1)
+          out_old = torch.matmul(attn, v)
+
+          # SDPA
+          out_new = F.scaled_dot_product_attention(q, k, v, dropout_p=0.0)
+
+          max_diff = (out_old - out_new).abs().max().item()
+          assert max_diff < 1e-5, f'Flash Attention parity failed: max_diff={max_diff}'
+          print(f'  Flash Attention parity: PASS (max_diff={max_diff:.10f})')
+          "
