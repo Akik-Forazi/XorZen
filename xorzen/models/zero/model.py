@@ -1174,9 +1174,13 @@ class zeroModel(BaseModel):
             if unfinished_sequences.max() == 0:
                 break
         
-        # Return best beam for each batch
+        # Return best-scoring beam for each batch
         input_ids = input_ids.view(batch_size, num_beams, -1)
-        return input_ids[:, 0, :]  # Return first beam
+        beam_scores = beam_scores.view(batch_size, num_beams)
+        best_beam_idx = beam_scores.argmax(dim=1)  # [batch_size]
+        # Gather the best beam per batch element
+        best_ids = input_ids[torch.arange(batch_size, device=device), best_beam_idx]
+        return best_ids
     
     # ==================== HELPER FUNCTIONS ====================
     
