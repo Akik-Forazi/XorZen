@@ -110,3 +110,5 @@ credentials.json
 .bash_history
 .bashrc.local
 .zsh_history
+tests/cpp_parity/cpp/end_to_end_harness
+tests/cpp_parity/cpp/hass_granular_harness
