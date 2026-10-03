@@ -112,3 +112,4 @@ credentials.json
 .zsh_history
 tests/cpp_parity/cpp/end_to_end_harness
 tests/cpp_parity/cpp/hass_granular_harness
+tests/cpp_parity/cpp/training_smoke_test
