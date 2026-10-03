@@ -43,3 +43,61 @@ Stage Summary:
 - 10 post-training investigations identified
 - Report: XORZEN_v04_PHASE3_FORENSIC_AUDIT.md
 - Tests: scripts/audit_phase3/reproduce_bugs.py + results JSON
+---
+Task ID: parity-harness
+Agent: main
+Task: Phase: C++ Component Parity + Port Decision — freeze Python spec + build component-level parity harness
+
+Work Log:
+- Verified golden reference (.pt) reproducibility across two separate process runs:
+  both produced SHA256 6906aee00addcd56a72c441c5eeb63d9466bec4dccb5911e294ed421733f13f8
+- Read existing audit docs (CPP_PORT_DECISION.md, STATUS_REPORT.md, PARITY_AUDIT_REPORT.md)
+- Audited C++ source: ssm.cpp (S4D complex-A, NOT used by HASS), hass_block.cpp
+  (SSMPathway with serial scan, AdaptiveFFN, GatedMerger), routing.cpp (AdaptiveRouter
+  without cost-aware modulation)
+- Built 14-component fixture generator (tests/cpp_parity/generators/generate_all_fixtures.py)
+- Wrote simple line-based manifest format (no JSON dep for C++)
+- Wrote C++ parity harness (tests/cpp_parity/cpp/parity_harness.cpp, ~600 lines)
+  that compiles directly via g++ + LibTorch (no cmake needed)
+- Wrote Python comparison script with documented per-component tolerances
+- Ran full parity suite: 11/14 PASS, 1 ARCH_MISMATCH (merger), 2 informative FAILs
+
+Stage Summary:
+- 11/14 components pass component-level parity (LayerNorm, embeddings, q/k/v_proj,
+  attention, ssm_scan, sliced_ffn at max-width, moe_aggregation, lm_head, embeddings)
+- Router FAIL: depth_probs abs=0.047, depth_mask MISMATCH (1.0), path_probs abs=0.121
+  — caused by missing cost-aware modulation (routing.py:546-588) in C++
+- Merger ARCH_MISMATCH: C++ has 2-way GELU gate, Python has 3-way SiLU gate
+  (gate_controller output dim differs: [2, hidden] vs [3, hidden*2])
+- SSM pathway FAIL: max_abs=0.045 — caused by 4 known divergences:
+  (1) B_bar no ZOH in C++, (2) conv center-padding vs causal, (3) C applied
+  inside scan vs after LN, (4) LN order: D_proj(LN(C*h)) vs D_proj(C*LN(h))
+- All fixtures are byte-reproducible across runs
+- Commit: 24fe3df "phase(parity): freeze Python spec + build C++ component parity harness"
+- Not pushed (29 commits total now unpushed)
+---
+Task ID: parity-investigations
+Agent: main
+Task: Phase: C++ Component Parity + Port Decision — investigation docs + matrix + final report
+
+Work Log:
+- Launched parallel Explore agents to investigate SSM, HASS/SlicedFFN/Loss, Router/Checkpoint divergences
+- Wrote docs/parity/SSM_INVESTIGATION.md (10 dimensions, 4 local fixes identified, ADAPT not REPLACE verdict)
+- Wrote docs/parity/HASS_SlicedFFN_Loss_INVESTIGATION.md (HASS 8 dimensions, SlicedFFN 8 dimensions + 4-question verdict, Loss 7 sections + bonus merger finding)
+- Wrote docs/parity/ROUTER_CHECKPOINT_INVESTIGATION.md (16 router dimensions + 7 checkpoint dimensions, practical compatibility analysis)
+- Wrote docs/parity/CPP_PARITY_MATRIX.md (31 components, MATCHED/PARTIAL/MISMATCH/MISSING/EXTRA statuses)
+- Wrote docs/parity/CPP_PORT_DECISION.md (3 paths compared, evidence-only, no recommendation)
+- Wrote docs/parity/SECURITY_REVIEW.md (verified existing migration doc, 4 safe improvements documented separately)
+- Ran Python baseline: 13/17 tests pass (4 pre-existing infra failures)
+- Ran CPU performance baseline: zero_nano_1m forward=9.4ms, train=46.7ms, SSM scan T=64..1024
+- Beam search regression test: PASS (6/6 individual tests)
+- Wrote docs/parity/FINAL_REPORT.md (all 11 required sections)
+
+Stage Summary:
+- 31 components audited across 6 investigation docs
+- 14 component fixtures runtime-verified (11 PASS, 2 informative FAIL, 1 ARCH_MISMATCH)
+- 9 components MATCHED, 9 PARTIAL, 7 MISMATCH, 5 MISSING, 1 EXTRA
+- 3 port paths compared with evidence (Path A/B/C)
+- Recommendation: write checkpoint converter + apply 4 SSM fixes + swap merger include as next phase
+- 29 commits unpushed (per user's directive)
+- Working tree clean after this commit

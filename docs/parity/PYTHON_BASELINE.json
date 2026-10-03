@@ -1,0 +1,170 @@
+{
+  "tests": {
+    "total": 17,
+    "pass": 13,
+    "fail": 4,
+    "skip": 0,
+    "results": [
+      {
+        "file": "test_phase1_correctness.py",
+        "status": "PASS",
+        "returncode": 0,
+        "duration_s": 7.85,
+        "individual_pass": 0,
+        "individual_fail": 0
+      },
+      {
+        "file": "test_phase2_regression.py",
+        "status": "PASS",
+        "returncode": 0,
+        "duration_s": 3.48,
+        "individual_pass": 0,
+        "individual_fail": 0
+      },
+      {
+        "file": "test_phase4_v04.py",
+        "status": "PASS",
+        "returncode": 0,
+        "duration_s": 17.66,
+        "individual_pass": 0,
+        "individual_fail": 0
+      },
+      {
+        "file": "test_v05_fixes.py",
+        "status": "PASS",
+        "returncode": 0,
+        "duration_s": 58.23,
+        "individual_pass": 0,
+        "individual_fail": 0
+      },
+      {
+        "file": "test_v101_regression.py",
+        "status": "PASS",
+        "returncode": 0,
+        "duration_s": 5.81,
+        "individual_pass": 6,
+        "individual_fail": 0
+      },
+      {
+        "file": "test_ssm_scan_parity.py",
+        "status": "PASS",
+        "returncode": 0,
+        "duration_s": 14.86,
+        "individual_pass": 53,
+        "individual_fail": 0
+      },
+      {
+        "file": "test_golden_parity.py",
+        "status": "PASS",
+        "returncode": 0,
+        "duration_s": 3.34,
+        "individual_pass": 3,
+        "individual_fail": 0
+      },
+      {
+        "file": "test_beam_search.py",
+        "status": "PASS",
+        "returncode": 0,
+        "duration_s": 3.31,
+        "individual_pass": 6,
+        "individual_fail": 0
+      },
+      {
+        "file": "test_fixes.py",
+        "status": "FAIL",
+        "returncode": 1,
+        "duration_s": 6.28,
+        "individual_pass": 0,
+        "individual_fail": 0,
+        "last_error": "FAILED tests/test_fixes.py::test_bug2_65k_tokenizer_loads_from_package_layout",
+        "stderr_tail": ""
+      },
+      {
+        "file": "test_blocker_fixes.py",
+        "status": "FAIL",
+        "returncode": 1,
+        "duration_s": 1.8,
+        "individual_pass": 0,
+        "individual_fail": 0,
+        "last_error": "ModuleNotFoundError: No module named 'xorzen'",
+        "stderr_tail": "Traceback (most recent call last):\n  File \"/home/z/my-project/XorZen/tests/test_blocker_fixes.py\", line 14, in <module>\n    from xorzen.config import ModelConfig, ConfigFactory\nModuleNotFoundError: No module named 'xorzen'\n"
+      },
+      {
+        "file": "test_causal_leakage_fix.py",
+        "status": "PASS",
+        "returncode": 0,
+        "duration_s": 1.78,
+        "individual_pass": 0,
+        "individual_fail": 0
+      },
+      {
+        "file": "test_cot_consistency_loss.py",
+        "status": "PASS",
+        "returncode": 0,
+        "duration_s": 3.47,
+        "individual_pass": 0,
+        "individual_fail": 0
+      },
+      {
+        "file": "test_fix_p5_load_balance.py",
+        "status": "PASS",
+        "returncode": 0,
+        "duration_s": 1.82,
+        "individual_pass": 0,
+        "individual_fail": 0
+      },
+      {
+        "file": "test_fix_sppq_schedule.py",
+        "status": "FAIL",
+        "returncode": 1,
+        "duration_s": 1.78,
+        "individual_pass": 0,
+        "individual_fail": 0,
+        "last_error": "ModuleNotFoundError: No module named 'xorzen'",
+        "stderr_tail": "Traceback (most recent call last):\n  File \"/home/z/my-project/XorZen/tests/test_fix_sppq_schedule.py\", line 20, in <module>\n    from xorzen.utils.sppq import (\nModuleNotFoundError: No module named 'xorzen'\n"
+      },
+      {
+        "file": "test_fix_tokenizer_roundtrip.py",
+        "status": "FAIL",
+        "returncode": 1,
+        "duration_s": 0.35,
+        "individual_pass": 0,
+        "individual_fail": 0,
+        "last_error": "ModuleNotFoundError: No module named 'xorzen'",
+        "stderr_tail": "Traceback (most recent call last):\n  File \"/home/z/my-project/XorZen/tests/test_fix_tokenizer_roundtrip.py\", line 15, in <module>\n    import xorzen\nModuleNotFoundError: No module named 'xorzen'\n"
+      },
+      {
+        "file": "test_micro_overfit.py",
+        "status": "PASS",
+        "returncode": 0,
+        "duration_s": 8.18,
+        "individual_pass": 0,
+        "individual_fail": 0
+      },
+      {
+        "file": "test_phase2_sparsity.py",
+        "status": "PASS",
+        "returncode": 0,
+        "duration_s": 8.36,
+        "individual_pass": 0,
+        "individual_fail": 0
+      }
+    ]
+  },
+  "performance": {
+    "status": "VERIFIED",
+    "model": "xorzen_nano_1m",
+    "params": 1053711,
+    "forward_ms_per_step": 9.42,
+    "train_ms_per_step": 46.73,
+    "ssm_scan_ms": {
+      "T=64": 0.31,
+      "T=256": 1.24,
+      "T=257": 1.22,
+      "T=512": 2.54,
+      "T=1024": 5.09
+    },
+    "cpu_count": 2,
+    "torch_version": "2.14.1+cpu"
+  }
+}
