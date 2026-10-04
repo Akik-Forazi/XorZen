@@ -73,10 +73,11 @@ jobs:
           python -c "import torch; print(f'torch {torch.__version__} OK')"
           TORCH_DIR=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')
           echo "TORCH_DIR=$TORCH_DIR"
-          ls "$TORCH_DIR/lib/libtorch.so" 2>/dev/null || ls "$TORCH_DIR/lib/libtorch.dylib" 2>/dev/null || ls "$TORCH_DIR/lib/torch.lib" 2>/dev/null || {
-            echo "WARNING: Could not find libtorch shared library"
-            ls "$TORCH_DIR/lib/" | head -10
-          }
+          # Check for libtorch — different filenames per platform
+          ls "$TORCH_DIR/lib/libtorch.so" 2>/dev/null && echo "Found libtorch.so" || true
+          ls "$TORCH_DIR/lib/libtorch.dylib" 2>/dev/null && echo "Found libtorch.dylib" || true
+          ls "$TORCH_DIR/lib/torch.lib" 2>/dev/null && echo "Found torch.lib" || true
+          ls "$TORCH_DIR/lib/" 2>/dev/null | head -10 || true
 
       - name: Compile native kernels
         shell: bash
@@ -165,8 +166,8 @@ jobs:
         include:
           - os: ubuntu-22.04
             platform: linux-x64
-          - os: macos-14
-            platform: macos-arm64
+          - os: macos-13
+            platform: macos-x64
 
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
@@ -219,14 +220,18 @@ jobs:
           BUILD_DIR=tests/cpp_parity/cpp/build
           mkdir -p "$BUILD_DIR"
 
-          # Detect AVX2 support (Linux x86_64 only)
+          # Detect compiler and AVX2 support
+          CXX=g++
           AVX_FLAGS=""
-          if [ "$(uname -m)" = "x86_64" ] && [ "$(uname -s)" = "Linux" ]; then
+          if [ "$(uname -s)" = "Darwin" ]; then
+            CXX=clang++
+          elif [ "$(uname -m)" = "x86_64" ] && [ "$(uname -s)" = "Linux" ]; then
             AVX_FLAGS="-mavx2 -mfma"
           fi
 
           MODEL_CXXFLAGS="-std=c++20 -O2 -fPIC $AVX_FLAGS -I$TORCH_DIR/include -I$TORCH_DIR/include/torch/csrc/api/include -Ixorzen.cpp/include"
 
+          echo "=== Using $CXX with flags: $MODEL_CXXFLAGS ==="
           echo "=== Compiling 16 model sources ==="
           for f in xorzen.cpp/src/model/variants.cpp xorzen.cpp/src/utils/math_utils.cpp \
                    xorzen.cpp/src/utils/logger.cpp xorzen.cpp/src/optimized/simd_ops.cpp \
@@ -237,7 +242,7 @@ jobs:
                    xorzen.cpp/src/model/routing.cpp xorzen.cpp/src/model/hass_block.cpp \
                    xorzen.cpp/src/model/zmoe.cpp xorzen.cpp/src/model/xorzen_model.cpp; do
             echo "  CC $(basename $f)"
-            g++ $MODEL_CXXFLAGS -c "$f" -o "$BUILD_DIR/$(basename ${f%.cpp}).o" || {
+            $CXX $MODEL_CXXFLAGS -c "$f" -o "$BUILD_DIR/$(basename ${f%.cpp}).o" || {
               echo "ERROR: Failed to compile $f"
               exit 1
             }
@@ -253,9 +258,12 @@ jobs:
           TORCH_DIR=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')
           BUILD_DIR=tests/cpp_parity/cpp/build
 
-          # Detect AVX2 support
+          # Detect compiler and AVX2 support
+          CXX=g++
           AVX_FLAGS=""
-          if [ "$(uname -m)" = "x86_64" ] && [ "$(uname -s)" = "Linux" ]; then
+          if [ "$(uname -s)" = "Darwin" ]; then
+            CXX=clang++
+          elif [ "$(uname -m)" = "x86_64" ] && [ "$(uname -s)" = "Linux" ]; then
             AVX_FLAGS="-mavx2 -mfma"
           fi
 
@@ -267,7 +275,7 @@ jobs:
           python tests/cpp_parity/generators/generate_full_model_fixture.py
 
           # Build real model test
-          g++ -std=c++20 -O2 -fPIC $AVX_FLAGS \
+          $CXX -std=c++20 -O2 -fPIC $AVX_FLAGS \
             -I$TORCH_DIR/include -I$TORCH_DIR/include/torch/csrc/api/include \
             -Ixorzen.cpp/include tests/cpp_parity/cpp/real_model_test.cpp \
             "$BUILD_DIR/libxorzen_model.a" \
