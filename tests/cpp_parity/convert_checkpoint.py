@@ -27,6 +27,7 @@ The C++ side loads the output via:
 """
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
