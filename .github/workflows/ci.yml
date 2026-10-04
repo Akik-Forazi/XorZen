@@ -107,21 +107,26 @@ jobs:
 
       - name: Download LibTorch (C++ headers + libs)
         run: |
-          # Use a stable LibTorch version that has a known-good download URL
-          # The pip torch version (2.14.1) may not have a matching LibTorch release
-          LIBTORCH_DL_VERSION="2.5.1"
-          LIBTORCH_URL="https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-${LIBTORCH_DL_VERSION}%2Bcpu.zip"
-          echo "Downloading LibTorch ${LIBTORCH_DL_VERSION} from: $LIBTORCH_URL"
-          wget -q --retry-connrefused --waitretry=5 --tries=3 "$LIBTORCH_URL" -O /tmp/libtorch.zip || {
-            echo "ERROR: Failed to download LibTorch from $LIBTORCH_URL"
-            echo "Trying without +cpu suffix..."
-            wget -q --retry-connrefused --waitretry=5 --tries=3 \
-              "https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-${LIBTORCH_DL_VERSION}.zip" \
-              -O /tmp/libtorch.zip || { echo "ERROR: Both download attempts failed"; exit 1; }
-          }
-          echo "Download size: $(ls -la /tmp/libtorch.zip | awk '{print $5}') bytes"
+          # Download LibTorch C++ SDK. Use curl with retry + fallback versions.
+          # The pip-installed torch does NOT include C++ headers.
+          set -e
+          for VERSION in "2.5.1" "2.4.1" "2.3.1" "2.2.2" "2.1.2"; do
+            URL="https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-${VERSION}%2Bcpu.zip"
+            echo "Trying LibTorch ${VERSION}..."
+            if curl -sL --retry 3 --retry-delay 5 -o /tmp/libtorch.zip "$URL"; then
+              SIZE=$(stat -c%s /tmp/libtorch.zip 2>/dev/null || stat -f%z /tmp/libtorch.zip 2>/dev/null || echo 0)
+              if [ "$SIZE" -gt 1000000 ]; then
+                echo "Downloaded LibTorch ${VERSION}: ${SIZE} bytes"
+                break
+              fi
+            fi
+            echo "Failed or too small, trying next version..."
+          done
+          if [ ! -f /tmp/libtorch.zip ] || [ "$SIZE" -lt 1000000 ]; then
+            echo "ERROR: All LibTorch download attempts failed"
+            exit 1
+          fi
           unzip -q /tmp/libtorch.zip -d /tmp/
-          echo "=== Verify LibTorch ==="
           ls -la /tmp/libtorch/include/torch/torch.h || { echo "ERROR: torch.h not found"; exit 1; }
           ls -la /tmp/libtorch/lib/libtorch.so || { echo "ERROR: libtorch.so not found"; exit 1; }
           echo "LibTorch verified at /tmp/libtorch"
