@@ -167,13 +167,11 @@ jobs:
         run: |
           export LD_LIBRARY_PATH=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')/lib:$LD_LIBRARY_PATH
           TORCH_DIR=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')
-          cd tests/cpp_parity/cpp
           g++ -std=c++20 -O2 \
             -I$TORCH_DIR/include -I$TORCH_DIR/include/torch/csrc/api/include \
-            -L$TORCH_DIR/lib training_smoke_test.cpp \
+            -L$TORCH_DIR/lib tests/cpp_parity/cpp/training_smoke_test.cpp \
             -ltorch -lc10 -ltorch_cpu -Wl,-rpath,$TORCH_DIR/lib \
-            -o training_smoke_test
-          cd ../..
+            -o tests/cpp_parity/cpp/training_smoke_test
           python tests/cpp_parity/generators/generate_full_model_fixture.py
           ./tests/cpp_parity/cpp/training_smoke_test tests/cpp_parity/fixtures/15_full_model tests/cpp_parity/cpp_output/training_smoke
 
@@ -181,13 +179,11 @@ jobs:
         run: |
           export LD_LIBRARY_PATH=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')/lib:$LD_LIBRARY_PATH
           TORCH_DIR=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')
-          cd tests/cpp_parity/cpp
           g++ -std=c++20 -O2 \
             -I$TORCH_DIR/include -I$TORCH_DIR/include/torch/csrc/api/include \
-            -L$TORCH_DIR/lib generation_test.cpp \
+            -L$TORCH_DIR/lib tests/cpp_parity/cpp/generation_test.cpp \
             -ltorch -lc10 -ltorch_cpu -Wl,-rpath,$TORCH_DIR/lib \
-            -o generation_test
-          cd ../..
+            -o tests/cpp_parity/cpp/generation_test
           ./tests/cpp_parity/cpp/generation_test tests/cpp_parity/fixtures/15_full_model tests/cpp_parity/cpp_output/generation
 
       - name: Upload build artifacts on failure
@@ -288,9 +284,7 @@ jobs:
       - name: Build and run end-to-end harness
         run: |
           export LD_LIBRARY_PATH=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')/lib:$LD_LIBRARY_PATH
-          cd tests/cpp_parity/cpp
-          ./build_e2e.sh
-          cd ../..
+          tests/cpp_parity/cpp/build_e2e.sh
           ./tests/cpp_parity/cpp/end_to_end_harness \
             tests/cpp_parity/fixtures/15_full_model \
             tests/cpp_parity/cpp_output/integration_e2e
@@ -299,13 +293,11 @@ jobs:
         run: |
           export LD_LIBRARY_PATH=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')/lib:$LD_LIBRARY_PATH
           TORCH_DIR=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')
-          cd tests/cpp_parity/cpp
           g++ -std=c++20 -O2 \
             -I$TORCH_DIR/include -I$TORCH_DIR/include/torch/csrc/api/include \
-            -L$TORCH_DIR/lib checkpoint_lifecycle.cpp \
+            -L$TORCH_DIR/lib tests/cpp_parity/cpp/checkpoint_lifecycle.cpp \
             -ltorch -lc10 -ltorch_cpu -Wl,-rpath,$TORCH_DIR/lib \
-            -o checkpoint_lifecycle
-          cd ../..
+            -o tests/cpp_parity/cpp/checkpoint_lifecycle
           ./tests/cpp_parity/cpp/checkpoint_lifecycle \
             tests/cpp_parity/fixtures/15_full_model \
             tests/cpp_parity/cpp_output/integration_lifecycle
