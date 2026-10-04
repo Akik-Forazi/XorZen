@@ -62,14 +62,16 @@ torch::Tensor fused_layernorm_gelu_simd(
 );
 
 /**
- * @brief Fast exp approximation (AVX2)
+ * @brief Fast exp approximation (AVX2, x86_64 only)
  */
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
 inline __m256 exp_ps_avx2(__m256 x);
 
 /**
- * @brief Fast tanh approximation (AVX2)
+ * @brief Fast tanh approximation (AVX2, x86_64 only)
  */
 inline __m256 tanh_ps_avx2(__m256 x);
+#endif
 
 /**
  * @brief Check if SIMD instructions are available on this CPU

@@ -2,16 +2,64 @@
 #include <cmath>
 #include <algorithm>
 
-// Platform-specific SIMD intrinsics
-#ifdef _MSC_VER
-  #include <intrin.h>
-#else
-  #include <x86intrin.h>
-  #include <cpuid.h>
+// Platform-specific SIMD intrinsics — only compile on x86/x64
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
+  #ifdef _MSC_VER
+    #include <intrin.h>
+  #else
+    #include <x86intrin.h>
+    #include <cpuid.h>
+  #endif
+  #define XORZEN_HAS_X86_SIMD 1
 #endif
 
 namespace xorzen {
+
 namespace optimized {
+
+// On non-x86 platforms (ARM64, etc.), provide scalar fallbacks using LibTorch builtins
+#ifndef XORZEN_HAS_X86_SIMD
+
+torch::Tensor rmsnorm_simd(const torch::Tensor& x, const torch::Tensor& weight, float eps) {
+    auto x_f = x.to(torch::kFloat32);
+    auto ms = x_f.pow(2).sum(-1, true);
+    return x_f * torch::rsqrt(ms + eps) * weight;
+}
+
+torch::Tensor silu_simd(const torch::Tensor& x) {
+    return torch::silu(x);
+}
+
+torch::Tensor gelu_simd(const torch::Tensor& x) {
+    return torch::gelu(x);
+}
+
+torch::Tensor softmax_simd(const torch::Tensor& x, int64_t dim) {
+    return torch::softmax(x, dim);
+}
+
+torch::Tensor matmul_simd(const torch::Tensor& a, const torch::Tensor& b) {
+    return torch::matmul(a, b);
+}
+
+torch::Tensor fused_swiglu_simd(const torch::Tensor& gate, const torch::Tensor& up) {
+    return torch::silu(gate) * up;
+}
+
+torch::Tensor fused_layernorm_gelu_simd(const torch::Tensor& x, const torch::Tensor& gamma, const torch::Tensor& beta, float eps) {
+    auto ln = torch::layer_norm(x, {x.size(-1)}, gamma, beta, eps);
+    return torch::gelu(ln);
+}
+
+SIMDCapabilities g_simd_caps;
+
+SIMDCapabilities SIMDCapabilities::detect() {
+    return SIMDCapabilities{};  // No SIMD on non-x86
+}
+
+#else // XORZEN_HAS_X86_SIMD
+
+
 
 // Global SIMD capabilities (detected at startup)
 SIMDCapabilities g_simd_caps = SIMDCapabilities::detect();
@@ -493,5 +541,7 @@ torch::Tensor fused_layernorm_gelu_simd(
     return out;
 }
 
-} // namespace optimized
+}
+#endif // XORZEN_HAS_X86_SIMD
+ // namespace optimized
 } // namespace xorzen
