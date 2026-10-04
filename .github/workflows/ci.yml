@@ -107,10 +107,28 @@ jobs:
 
       - name: Verify LibTorch headers exist
         run: |
+          echo "=== Python path ==="
+          which python
+          python --version
+          echo "=== Torch path ==="
           TORCH_DIR=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')
           echo "TORCH_DIR=$TORCH_DIR"
-          ls -la $TORCH_DIR/include/torch/torch.h || { echo "ERROR: torch.h not found"; exit 1; }
-          ls -la $TORCH_DIR/lib/libtorch.so || { echo "ERROR: libtorch.so not found"; exit 1; }
+          echo "=== Check include dir ==="
+          ls -la $TORCH_DIR/include/torch/ 2>&1 || true
+          ls -la $TORCH_DIR/include/torch/torch.h 2>&1 || {
+            echo "ERROR: torch.h not found at $TORCH_DIR/include/torch/torch.h"
+            echo "=== Searching for torch.h ==="
+            find $TORCH_DIR -name "torch.h" 2>/dev/null | head -5
+            echo "=== Listing include dir ==="
+            ls -la $TORCH_DIR/include/ 2>&1 || true
+            exit 1
+          }
+          echo "=== Check lib dir ==="
+          ls -la $TORCH_DIR/lib/libtorch*.so* 2>&1 || {
+            echo "ERROR: libtorch.so not found"
+            ls -la $TORCH_DIR/lib/ 2>&1 | head -20
+            exit 1
+          }
           echo "LibTorch headers and libraries verified."
 
       - name: Install XorZen (for fixture generation)
@@ -206,7 +224,7 @@ jobs:
       - name: Install XorZen package
         run: |
           python -m pip install --no-deps -e .
-          python -m pip install numpy pydantic psutil einops tqdm scipy sentencepiece
+          python -m pip install numpy pydantic psutil einops tqdm scipy sentencepiece tokenizers transformers
 
       - name: Import test
         run: |
