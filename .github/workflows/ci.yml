@@ -107,9 +107,18 @@ jobs:
 
       - name: Download LibTorch (C++ headers + libs)
         run: |
-          LIBTORCH_URL="https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-${LIBTORCH_VERSION}%2Bcpu.zip"
-          echo "Downloading LibTorch from: $LIBTORCH_URL"
-          wget -q --retry-connrefused --waitretry=5 --tries=3 "$LIBTORCH_URL" -O /tmp/libtorch.zip
+          # Use a stable LibTorch version that has a known-good download URL
+          # The pip torch version (2.14.1) may not have a matching LibTorch release
+          LIBTORCH_DL_VERSION="2.5.1"
+          LIBTORCH_URL="https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-${LIBTORCH_DL_VERSION}%2Bcpu.zip"
+          echo "Downloading LibTorch ${LIBTORCH_DL_VERSION} from: $LIBTORCH_URL"
+          wget -q --retry-connrefused --waitretry=5 --tries=3 "$LIBTORCH_URL" -O /tmp/libtorch.zip || {
+            echo "ERROR: Failed to download LibTorch from $LIBTORCH_URL"
+            echo "Trying without +cpu suffix..."
+            wget -q --retry-connrefused --waitretry=5 --tries=3 \
+              "https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-${LIBTORCH_DL_VERSION}.zip" \
+              -O /tmp/libtorch.zip || { echo "ERROR: Both download attempts failed"; exit 1; }
+          }
           echo "Download size: $(ls -la /tmp/libtorch.zip | awk '{print $5}') bytes"
           unzip -q /tmp/libtorch.zip -d /tmp/
           echo "=== Verify LibTorch ==="
@@ -256,9 +265,15 @@ jobs:
 
       - name: Download LibTorch (C++ headers + libs)
         run: |
-          LIBTORCH_URL="https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-${LIBTORCH_VERSION}%2Bcpu.zip"
-          echo "Downloading LibTorch from: $LIBTORCH_URL"
-          wget -q --retry-connrefused --waitretry=5 --tries=3 "$LIBTORCH_URL" -O /tmp/libtorch.zip
+          LIBTORCH_DL_VERSION="2.5.1"
+          LIBTORCH_URL="https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-${LIBTORCH_DL_VERSION}%2Bcpu.zip"
+          echo "Downloading LibTorch ${LIBTORCH_DL_VERSION}..."
+          wget -q --retry-connrefused --waitretry=5 --tries=3 "$LIBTORCH_URL" -O /tmp/libtorch.zip || {
+            echo "Trying without +cpu suffix..."
+            wget -q --retry-connrefused --waitretry=5 --tries=3 \
+              "https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-${LIBTORCH_DL_VERSION}.zip" \
+              -O /tmp/libtorch.zip || { echo "ERROR: download failed"; exit 1; }
+          }
           unzip -q /tmp/libtorch.zip -d /tmp/
           ls -la /tmp/libtorch/include/torch/torch.h || { echo "ERROR: torch.h not found"; exit 1; }
           echo "LibTorch verified at /tmp/libtorch"
