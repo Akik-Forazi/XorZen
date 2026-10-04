@@ -216,6 +216,7 @@ def convert(python_ckpt_path: str, output_path: str, report_path: Optional[str] 
 
     # Save the flat archive. Use torch.save with a plain dict — C++ loads via
     # torch::serialize::InputArchive which reads the same format.
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     torch.save(output_sd, output_path)
     print(f"\n  Saved C++ checkpoint: {output_path}")
     print(f"  Size: {Path(output_path).stat().st_size:,} bytes")
