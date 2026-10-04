@@ -155,6 +155,7 @@ jobs:
 
       - name: Run component parity tests
         run: |
+          export LD_LIBRARY_PATH=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')/lib:$LD_LIBRARY_PATH
           python tests/cpp_parity/compare.py
 
       - name: Build and run extended SSM tests
