@@ -286,22 +286,25 @@ jobs:
           export LD_LIBRARY_PATH=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')/lib:$LD_LIBRARY_PATH
           TORCH_DIR=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')
           BUILD_DIR=tests/cpp_parity/cpp/build
-          # Build the real model library if not already built
-          if [ ! -f "$BUILD_DIR/libxorzen_model.a" ]; then
-            mkdir -p "$BUILD_DIR"
-            for f in xorzen.cpp/src/model/variants.cpp xorzen.cpp/src/utils/math_utils.cpp \
-                     xorzen.cpp/src/utils/logger.cpp xorzen.cpp/src/optimized/simd_ops.cpp \
-                     xorzen.cpp/src/optimized/thread_pool.cpp xorzen.cpp/src/core/tensor_utils.cpp \
-                     xorzen.cpp/src/model/expert.cpp xorzen.cpp/src/model/ssm.cpp \
-                     xorzen.cpp/src/model/merger.cpp xorzen.cpp/src/model/cot_vector.cpp \
-                     xorzen.cpp/src/model/igris.cpp xorzen.cpp/src/model/coherence_field.cpp \
-                     xorzen.cpp/src/model/routing.cpp xorzen.cpp/src/model/hass_block.cpp \
-                     xorzen.cpp/src/model/zmoe.cpp xorzen.cpp/src/model/xorzen_model.cpp; do
-              g++ -std=c++20 -O2 -fPIC -I$TORCH_DIR/include -I$TORCH_DIR/include/torch/csrc/api/include \
-                -Ixorzen.cpp/include -c "$f" -o "$BUILD_DIR/$(basename ${f%.cpp}).o" 2>/dev/null
-            done
-            ar rcs "$BUILD_DIR/libxorzen_model.a" "$BUILD_DIR"/*.o
-          fi
+          mkdir -p "$BUILD_DIR"
+          # Build the real model library
+          for f in xorzen.cpp/src/model/variants.cpp xorzen.cpp/src/utils/math_utils.cpp \
+                   xorzen.cpp/src/utils/logger.cpp xorzen.cpp/src/optimized/simd_ops.cpp \
+                   xorzen.cpp/src/optimized/thread_pool.cpp xorzen.cpp/src/core/tensor_utils.cpp \
+                   xorzen.cpp/src/model/expert.cpp xorzen.cpp/src/model/ssm.cpp \
+                   xorzen.cpp/src/model/merger.cpp xorzen.cpp/src/model/cot_vector.cpp \
+                   xorzen.cpp/src/model/igris.cpp xorzen.cpp/src/model/coherence_field.cpp \
+                   xorzen.cpp/src/model/routing.cpp xorzen.cpp/src/model/hass_block.cpp \
+                   xorzen.cpp/src/model/zmoe.cpp xorzen.cpp/src/model/xorzen_model.cpp; do
+            echo "Compiling $(basename $f)..."
+            g++ -std=c++20 -O2 -fPIC -I$TORCH_DIR/include -I$TORCH_DIR/include/torch/csrc/api/include \
+              -Ixorzen.cpp/include -c "$f" -o "$BUILD_DIR/$(basename ${f%.cpp}).o" || {
+              echo "ERROR: Failed to compile $f"
+              exit 1
+            }
+          done
+          ar rcs "$BUILD_DIR/libxorzen_model.a" "$BUILD_DIR"/*.o
+          echo "Library built: $(ls -la $BUILD_DIR/libxorzen_model.a | awk '{print $5}') bytes"
           # Build and run real model test (forward mode)
           g++ -std=c++20 -O2 -fPIC -I$TORCH_DIR/include -I$TORCH_DIR/include/torch/csrc/api/include \
             -Ixorzen.cpp/include tests/cpp_parity/cpp/real_model_test.cpp \
