@@ -140,7 +140,7 @@ jobs:
       - name: Install XorZen (for fixture generation)
         run: |
           python -m pip install --no-deps -e .
-          python -m pip install numpy pydantic psutil einops tqdm scipy
+          python -m pip install numpy pydantic psutil einops tqdm scipy pyyaml
 
       - name: Generate fixtures
         run: |

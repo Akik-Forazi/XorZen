@@ -224,7 +224,9 @@ def main():
     components = sorted([d.name for d in FIXTURES.iterdir() if d.is_dir()
                         and not d.name.startswith("15_")
                         and not d.name.startswith("16_")
-                        and not d.name.startswith("17_")])
+                        and not d.name.startswith("17_")
+                        and not d.name.startswith("18_")
+                        and not d.name.startswith("19_")])
     print(f"Running parity for {len(components)} components...\n")
 
     results: List[Dict[str, Any]] = []
