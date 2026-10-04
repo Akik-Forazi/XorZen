@@ -1,0 +1,35 @@
+component 19_pathway_subsets
+config hidden_size 8
+config num_attention_heads 2
+config ssm_state_dim 16
+config ssm_kernel_size 3
+config low_rank_dim 96
+config local_window_size 128
+config B 2
+config T 16
+config layer_norm_eps 1e-05
+tolerance max_abs 1e-5
+tolerance max_rel 1e-4
+tensor expected x_attn_full float32 expected_x_attn_full.bin 2,16,8
+tensor expected path_probs float32 expected_path_probs.bin 2,16,3
+tensor expected hard_mask float32 expected_hard_mask.bin 2,16,3
+tensor expected norm_w float32 expected_norm_w.bin 2,16,3
+tensor expected local_x_slice float32 expected_local_x_slice.bin 16,8
+tensor expected local_y_slice float32 expected_local_y_slice.bin 16,8
+tensor expected local_idx int64 expected_local_idx.bin 16
+tensor expected local_w_slice float32 expected_local_w_slice.bin 16
+tensor expected local_weighted float32 expected_local_weighted.bin 16,8
+tensor expected low_rank_x_slice float32 expected_low_rank_x_slice.bin 19,8
+tensor expected low_rank_y_slice float32 expected_low_rank_y_slice.bin 19,8
+tensor expected low_rank_idx int64 expected_low_rank_idx.bin 19
+tensor expected low_rank_w_slice float32 expected_low_rank_w_slice.bin 19
+tensor expected low_rank_weighted float32 expected_low_rank_weighted.bin 19,8
+tensor expected ssm_x_slice float32 expected_ssm_x_slice.bin 29,8
+tensor expected ssm_y_slice float32 expected_ssm_y_slice.bin 29,8
+tensor expected ssm_idx int64 expected_ssm_idx.bin 29
+tensor expected ssm_w_slice float32 expected_ssm_w_slice.bin 29
+tensor expected ssm_weighted float32 expected_ssm_weighted.bin 29,8
+tensor expected combined_sparse float32 expected_combined_sparse.bin 2,16,8
+tensor expected input_ids int64 expected_input_ids.bin 2,16
+tensor expected labels int64 expected_labels.bin 2,16
+end

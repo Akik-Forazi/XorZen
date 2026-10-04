@@ -332,19 +332,36 @@ AdaptiveFFNImpl::AdaptiveFFNImpl(int64_t hidden, double multiplier, std::string 
 
 torch::Tensor AdaptiveFFNImpl::forward(const torch::Tensor& x, const torch::Tensor& width_multiplier) {
     auto xn = ln_input->forward(x);
-    auto h = fc1->forward(xn);
-    
-    if (activation == "silu") {
-        h = optimized::silu_simd(h);
-    } else if (activation == "relu") {
-        h = torch::relu(h);
-    } else {
-        h = optimized::gelu_simd(h);
+    // SlicedFFN behavior: when width < max_width, slice fc1/fc2 and skip ln_hidden.
+    // The width_multiplier from the router encodes the actual width:
+    // multiplier = sum(probs * width_values) / hidden_size.
+    // For tiny_23k: multiplier=1.0, hidden=8 → width=8 < max_width=32 → slice.
+    int64_t actual_width = base_ffn_dim;
+    if (width_multiplier.defined() && width_multiplier.numel() > 0) {
+        double mult = width_multiplier.flatten()[0].item<double>();
+        int64_t w = static_cast<int64_t>(mult * hidden_dim);
+        if (w > 0 && w < base_ffn_dim) actual_width = w;
     }
-    
+    if (actual_width < base_ffn_dim) {
+        // SlicedFFN: slice fc1/fc2, skip ln_hidden (Python sliced_ffn.py:195-196)
+        auto fc1_w = fc1->weight.slice(0, 0, actual_width);
+        auto fc1_b = fc1->bias.slice(0, 0, actual_width);
+        auto fc2_w = fc2->weight.slice(1, 0, actual_width);
+        auto h = torch::linear(xn, fc1_w, fc1_b);
+        if (activation == "silu") h = torch::silu(h);
+        else if (activation == "relu") h = torch::relu(h);
+        else h = torch::gelu(h);
+        h = ffn_dropout->forward(h);
+        auto out = torch::linear(h, fc2_w, fc2->bias);
+        return dropout->forward(out);
+    }
+    // Full width
+    auto h = fc1->forward(xn);
+    if (activation == "silu") h = optimized::silu_simd(h);
+    else if (activation == "relu") h = torch::relu(h);
+    else h = optimized::gelu_simd(h);
     h = ffn_dropout->forward(ln_hidden->forward(h));
     auto out = fc2->forward(h);
-    if (width_multiplier.defined()) out = out * width_multiplier;
     return dropout->forward(out);
 }
 
