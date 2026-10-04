@@ -369,43 +369,95 @@ torch::Tensor HASSBlockImpl::forward(const torch::Tensor& x,
                                      const torch::Tensor& attention_mask,
                                      bool compute_all_pathways) {
     auto xa = ln1->forward(x);
-    auto local_out = local->forward(xa, attention_mask);
-    auto low_rank_out = low_rank->forward(xa);
-    auto ssm_out = ssm->forward(xa);
+    int64_t B = xa.size(0), T = xa.size(1), H = xa.size(2);
 
     torch::Tensor combined;
     if (routing_decision == nullptr || compute_all_pathways) {
-        // No routing — use uniform 1/3 weighting (Python v0.5 behavior)
-        auto w = torch::ones({xa.size(0), xa.size(1), 3}, xa.options()) / 3.0;
+        // No routing — compute all 3 pathways on full input, uniform 1/3 weighting
+        auto local_out = local->forward(xa, attention_mask);
+        auto low_rank_out = low_rank->forward(xa);
+        auto ssm_out = ssm->forward(xa);
+        auto w = torch::ones({B, T, 3}, xa.options()) / 3.0;
         combined = local_out * w.select(-1, 0).unsqueeze(-1) +
                    low_rank_out * w.select(-1, 1).unsqueeze(-1) +
                    ssm_out * w.select(-1, 2).unsqueeze(-1);
     } else {
-        // Sparse pathway dispatch (mirror Python sparse_pathway_dispatch).
-        // top_k = pathway_top_k (default 2). Build hard mask, renormalize path_probs.
-        auto path_probs = routing_decision->path_probs;
+        // SPARSE PATHWAY DISPATCH — mirror Python sparse_pathway_dispatch exactly.
+        // CRITICAL: pathways are computed on TOKEN SUBSETS (only selected tokens),
+        // not on the full input. This matters because SSM recurrence and local
+        // attention causal mask depend on the full sequence context. Running on
+        // a subset produces different outputs than running on all tokens then masking.
+        auto path_probs = routing_decision->path_probs;  // [B, T, 3]
         int64_t num_paths = path_probs.size(-1);
         int64_t top_k = 2;  // Python config.pathway_top_k default
 
+        // Build hard top-k mask and renormalized weights
+        auto topk = path_probs.topk(top_k, /*dim=*/-1);
+        auto topk_idx = std::get<1>(topk);
+        auto hard_mask = torch::zeros_like(path_probs);
+        hard_mask.scatter_(-1, topk_idx, 1.0);
+        auto selected = path_probs * hard_mask;
+        auto sel_sum = selected.sum(-1, /*keepdim=*/true);
+        sel_sum = torch::where(sel_sum > 1e-8, sel_sum, torch::ones_like(sel_sum));
+        auto norm_w = selected / sel_sum;  // [B, T, 3]
+
         if (top_k >= num_paths) {
-            // No sparsity — use raw path_probs
-            combined = local_out * path_probs.select(-1, 0).unsqueeze(-1) +
-                       low_rank_out * path_probs.select(-1, 1).unsqueeze(-1) +
-                       ssm_out * path_probs.select(-1, 2).unsqueeze(-1);
-        } else {
-            // Build hard top-k mask
-            auto topk = path_probs.topk(top_k, /*dim=*/-1);
-            auto topk_idx = std::get<1>(topk);
-            auto hard_mask = torch::zeros_like(path_probs);
-            hard_mask.scatter_(-1, topk_idx, 1.0);
-            // Renormalize: selected_weights = path_probs * hard_mask, then / sum
-            auto selected = path_probs * hard_mask;
-            auto sel_sum = selected.sum(-1, /*keepdim=*/true);
-            sel_sum = torch::where(sel_sum > 1e-8, sel_sum, torch::ones_like(sel_sum));
-            auto norm_w = selected / sel_sum;
+            // All pathways selected — compute on full input
+            auto local_out = local->forward(xa, attention_mask);
+            auto low_rank_out = low_rank->forward(xa);
+            auto ssm_out = ssm->forward(xa);
             combined = local_out * norm_w.select(-1, 0).unsqueeze(-1) +
                        low_rank_out * norm_w.select(-1, 1).unsqueeze(-1) +
                        ssm_out * norm_w.select(-1, 2).unsqueeze(-1);
+        } else {
+            // Sparse dispatch: for each pathway, find selected tokens, run forward
+            // on ONLY those tokens, scatter back with index_add_.
+            auto x_flat = xa.reshape({B * T, H});
+            auto mask_flat = hard_mask.reshape({B * T, num_paths});
+            auto w_flat = norm_w.reshape({B * T, num_paths});
+            auto combined_flat = torch::zeros({B * T, H}, xa.options());
+
+            // Pathway 0: local — pass empty attention_mask (Python passes None)
+            {
+                auto sel = mask_flat.select(1, 0) > 0.5;  // [B*T] bool
+                if (sel.any().item<bool>()) {
+                    auto idx = sel.nonzero().squeeze(-1);  // [n_sel]
+                    auto x_slice = x_flat.index_select(0, idx);  // [n_sel, H]
+                    auto x3d = x_slice.unsqueeze(0);
+                    // Pass empty attention_mask — Python sparse dispatch passes None
+                    auto y3d = local->forward(x3d, /*attention_mask=*/{});
+                    auto y_slice = y3d.squeeze(0);
+                    auto w_slice = w_flat.select(1, 0).index_select(0, idx).unsqueeze(-1);
+                    combined_flat.index_add_(0, idx, y_slice * w_slice);
+                }
+            }
+            // Pathway 1: low_rank
+            {
+                auto sel = mask_flat.select(1, 1) > 0.5;
+                if (sel.any().item<bool>()) {
+                    auto idx = sel.nonzero().squeeze(-1);
+                    auto x_slice = x_flat.index_select(0, idx);
+                    auto x3d = x_slice.unsqueeze(0);
+                    auto y3d = low_rank->forward(x3d);
+                    auto y_slice = y3d.squeeze(0);
+                    auto w_slice = w_flat.select(1, 1).index_select(0, idx).unsqueeze(-1);
+                    combined_flat.index_add_(0, idx, y_slice * w_slice);
+                }
+            }
+            // Pathway 2: ssm
+            {
+                auto sel = mask_flat.select(1, 2) > 0.5;
+                if (sel.any().item<bool>()) {
+                    auto idx = sel.nonzero().squeeze(-1);
+                    auto x_slice = x_flat.index_select(0, idx);
+                    auto x3d = x_slice.unsqueeze(0);
+                    auto y3d = ssm->forward(x3d);
+                    auto y_slice = y3d.squeeze(0);
+                    auto w_slice = w_flat.select(1, 2).index_select(0, idx).unsqueeze(-1);
+                    combined_flat.index_add_(0, idx, y_slice * w_slice);
+                }
+            }
+            combined = combined_flat.reshape({B, T, H});
         }
     }
 

@@ -1,0 +1,46 @@
+component 18_trace_divergence
+config vocab_size 8
+config hidden_size 8
+config num_layers 1
+config num_attention_heads 2
+config max_depth 1
+config num_widths 1
+config num_paths 3
+config num_experts 1
+config top_k 1
+config ssm_state_dim 16
+config ssm_kernel_size 3
+config context_length 32
+config pad_token_id 0
+config B 2
+config T 16
+config temperature 1.0
+config eval_routing_noise 0.15
+config cot_dim 2
+config cot_components 6
+config layer_norm_eps 1e-05
+config width_choices 8
+tolerance max_abs 1e-5
+tolerance max_rel 1e-4
+tensor expected hidden float32 expected_hidden.bin 2,16,8
+tensor expected path_probs float32 expected_path_probs.bin 2,16,3
+tensor expected depth_mask float32 expected_depth_mask.bin 2,16,1
+tensor expected width_idx int64 expected_width_idx.bin 2,16
+tensor expected width_multiplier float32 expected_width_multiplier.bin 2,16,1
+tensor expected x_attn float32 expected_x_attn.bin 2,16,8
+tensor expected local_out float32 expected_local_out.bin 2,16,8
+tensor expected low_rank_out float32 expected_low_rank_out.bin 2,16,8
+tensor expected ssm_out float32 expected_ssm_out.bin 2,16,8
+tensor expected combined_sparse float32 expected_combined_sparse.bin 2,16,8
+tensor expected combined_dense float32 expected_combined_dense.bin 2,16,8
+tensor expected norm_w float32 expected_norm_w.bin 2,16,3
+tensor expected hard_mask float32 expected_hard_mask.bin 2,16,3
+tensor expected block_out float32 expected_block_out.bin 2,16,8
+tensor expected moe_output float32 expected_moe_output.bin 2,16,8
+tensor expected merged float32 expected_merged.bin 2,16,8
+tensor expected final_norm float32 expected_final_norm.bin 2,16,8
+tensor expected logits float32 expected_logits.bin 2,16,8
+tensor expected lm_loss float32 expected_lm_loss.bin 
+tensor expected input_ids int64 expected_input_ids.bin 2,16
+tensor expected labels int64 expected_labels.bin 2,16
+end
