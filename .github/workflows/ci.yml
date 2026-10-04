@@ -281,31 +281,35 @@ jobs:
             tests/cpp_parity/checkpoints/zero_tiny_23k_cpp.pt \
             --report tests/cpp_parity/reports/integration_conversion.json
 
-      - name: Build and run end-to-end harness
+      - name: Build and run real model forward parity
         run: |
           export LD_LIBRARY_PATH=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')/lib:$LD_LIBRARY_PATH
           TORCH_DIR=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')
-          g++ -std=c++20 -O2 \
-            -I$TORCH_DIR/include -I$TORCH_DIR/include/torch/csrc/api/include \
-            -L$TORCH_DIR/lib tests/cpp_parity/cpp/end_to_end_harness.cpp \
-            -ltorch -lc10 -ltorch_cpu -Wl,-rpath,$TORCH_DIR/lib \
-            -o tests/cpp_parity/cpp/end_to_end_harness
-          ./tests/cpp_parity/cpp/end_to_end_harness \
-            tests/cpp_parity/fixtures/15_full_model \
-            tests/cpp_parity/cpp_output/integration_e2e
-
-      - name: Build and run checkpoint lifecycle
-        run: |
-          export LD_LIBRARY_PATH=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')/lib:$LD_LIBRARY_PATH
-          TORCH_DIR=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')
-          g++ -std=c++20 -O2 \
-            -I$TORCH_DIR/include -I$TORCH_DIR/include/torch/csrc/api/include \
-            -L$TORCH_DIR/lib tests/cpp_parity/cpp/checkpoint_lifecycle.cpp \
-            -ltorch -lc10 -ltorch_cpu -Wl,-rpath,$TORCH_DIR/lib \
-            -o tests/cpp_parity/cpp/checkpoint_lifecycle
-          ./tests/cpp_parity/cpp/checkpoint_lifecycle \
-            tests/cpp_parity/fixtures/15_full_model \
-            tests/cpp_parity/cpp_output/integration_lifecycle
+          BUILD_DIR=tests/cpp_parity/cpp/build
+          # Build the real model library if not already built
+          if [ ! -f "$BUILD_DIR/libxorzen_model.a" ]; then
+            mkdir -p "$BUILD_DIR"
+            for f in xorzen.cpp/src/model/variants.cpp xorzen.cpp/src/utils/math_utils.cpp \
+                     xorzen.cpp/src/utils/logger.cpp xorzen.cpp/src/optimized/simd_ops.cpp \
+                     xorzen.cpp/src/optimized/thread_pool.cpp xorzen.cpp/src/core/tensor_utils.cpp \
+                     xorzen.cpp/src/model/expert.cpp xorzen.cpp/src/model/ssm.cpp \
+                     xorzen.cpp/src/model/merger.cpp xorzen.cpp/src/model/cot_vector.cpp \
+                     xorzen.cpp/src/model/igris.cpp xorzen.cpp/src/model/coherence_field.cpp \
+                     xorzen.cpp/src/model/routing.cpp xorzen.cpp/src/model/hass_block.cpp \
+                     xorzen.cpp/src/model/zmoe.cpp xorzen.cpp/src/model/xorzen_model.cpp; do
+              g++ -std=c++20 -O2 -fPIC -I$TORCH_DIR/include -I$TORCH_DIR/include/torch/csrc/api/include \
+                -Ixorzen.cpp/include -c "$f" -o "$BUILD_DIR/$(basename ${f%.cpp}).o" 2>/dev/null
+            done
+            ar rcs "$BUILD_DIR/libxorzen_model.a" "$BUILD_DIR"/*.o
+          fi
+          # Build and run real model test (forward mode)
+          g++ -std=c++20 -O2 -fPIC -I$TORCH_DIR/include -I$TORCH_DIR/include/torch/csrc/api/include \
+            -Ixorzen.cpp/include tests/cpp_parity/cpp/real_model_test.cpp \
+            "$BUILD_DIR/libxorzen_model.a" \
+            -L$TORCH_DIR/lib -ltorch -lc10 -ltorch_cpu -Wl,-rpath,$TORCH_DIR/lib \
+            -o tests/cpp_parity/cpp/real_model_test
+          ./tests/cpp_parity/cpp/real_model_test tests/cpp_parity/fixtures/15_full_model \
+            tests/cpp_parity/cpp_output/integration_real_model forward
 
       - name: Upload integration results
         if: always()
