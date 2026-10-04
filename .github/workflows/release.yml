@@ -5,18 +5,13 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
-    inputs:
-      version:
-        description: "Version tag (e.g. v1.0.1)"
-        required: true
-        default: "v1.0.1"
 
 env:
-  LIBTORCH_VERSION: "2.14.1"
+  PYTHON_VERSION: '3.12'
 
 jobs:
   # ═══════════════════════════════════════════════════════════════
-  # Build Python package (universal — pure Python, no compilation)
+  # Job 1: Python package (pure Python — no compilation needed)
   # ═══════════════════════════════════════════════════════════════
   python-package:
     name: Python Package
@@ -25,20 +20,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Print environment
-        run: |
-          echo "=== OS ==="
-          uname -a
-          echo "=== Python ==="
-          python3 --version
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install build tools
-        run: pip install build wheel
+        run: python -m pip install build wheel
 
       - name: Build package
         run: |
@@ -47,8 +35,8 @@ jobs:
 
       - name: Verify package
         run: |
-          pip install dist/*.whl
-          python -c "import xorzen; print(f'xorzen {xorzen.__version__} imported OK')"
+          python -m pip install dist/*.whl
+          python -c "import xorzen; print(f'xorzen {xorzen.__version__} OK')"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -57,103 +45,127 @@ jobs:
           path: dist/*
 
   # ═══════════════════════════════════════════════════════════════
-  # Build C++ parity harnesses for each platform
+  # Job 2: C++ model library + parity harness (per platform)
   # ═══════════════════════════════════════════════════════════════
-  cpp-harness:
-    name: C++ Harness
+  cpp-build:
+    name: C++ Build (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-22.04
-            arch: x86_64
-            artifact_name: xorzen-cpp-harness-linux-x86_64
+            platform: linux-x64
           - os: macos-13
-            arch: x86_64
-            artifact_name: xorzen-cpp-harness-macos-x86_64
-          - os: macos-14
-            arch: arm64
-            artifact_name: xorzen-cpp-harness-macos-arm64
+            platform: macos-x64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
-      - name: Print environment
-        run: |
-          echo "=== OS ==="
-          uname -a
-          echo "=== Architecture ==="
-          uname -m
-          echo "=== Compiler ==="
-          g++ --version 2>/dev/null | head -1 || clang++ --version 2>/dev/null | head -1
-          echo "=== Python ==="
-          python3 --version
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install PyTorch (provides LibTorch)
+      - name: Install PyTorch + deps
+        shell: bash
         run: |
-          pip install torch==${LIBTORCH_VERSION} --index-url https://download.pytorch.org/whl/cpu
-          python -c "import torch; print(f'torch {torch.__version__} OK')"
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install numpy pydantic psutil einops tqdm scipy pyyaml
+
+      - name: Install xorzen
+        shell: bash
+        run: python -m pip install --no-deps -e .
+
+      - name: Build C++ model library + parity harness
+        shell: bash
+        run: |
+          export LD_LIBRARY_PATH=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')/lib:$LD_LIBRARY_PATH
           TORCH_DIR=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')
-          echo "TORCH_DIR=$TORCH_DIR"
-          ls -la $TORCH_DIR/include/torch/torch.h || { echo "ERROR: torch.h not found"; exit 1; }
-          ls -la $TORCH_DIR/lib/libtorch*.* 2>/dev/null | head -3 || { echo "ERROR: libtorch not found"; exit 1; }
+          BUILD_DIR=tests/cpp_parity/cpp/build
+          mkdir -p "$BUILD_DIR"
 
-      - name: Build parity harness
-        run: |
-          cd tests/cpp_parity/cpp
-          TORCH_DIR=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')
-          g++ -std=c++20 -O2 \
-            -I$TORCH_DIR/include -I$TORCH_DIR/include/torch/csrc/api/include \
-            -L$TORCH_DIR/lib parity_harness.cpp \
-            -ltorch -lc10 -ltorch_cpu -Wl,-rpath,$TORCH_DIR/lib \
-            -o parity_harness || { echo "ERROR: parity_harness build failed"; exit 1; }
-          ls -la parity_harness
-          ./parity_harness 2>&1 | head -2 || true
+          # Detect compiler + AVX2
+          CXX=g++
+          AVX_FLAGS=""
+          if [ "$(uname -s)" = "Darwin" ]; then
+            CXX=clang++
+          elif [ "$(uname -m)" = "x86_64" ]; then
+            AVX_FLAGS="-mavx2 -mfma"
+          fi
 
-      - name: Smoke test — verify harness runs
+          CXXFLAGS="-std=c++20 -O2 -fPIC $AVX_FLAGS -I$TORCH_DIR/include -I$TORCH_DIR/include/torch/csrc/api/include -Ixorzen.cpp/include"
+
+          # Build model library (16 sources)
+          for f in xorzen.cpp/src/model/variants.cpp xorzen.cpp/src/utils/math_utils.cpp \
+                   xorzen.cpp/src/utils/logger.cpp xorzen.cpp/src/optimized/simd_ops.cpp \
+                   xorzen.cpp/src/optimized/thread_pool.cpp xorzen.cpp/src/core/tensor_utils.cpp \
+                   xorzen.cpp/src/model/expert.cpp xorzen.cpp/src/model/ssm.cpp \
+                   xorzen.cpp/src/model/merger.cpp xorzen.cpp/src/model/cot_vector.cpp \
+                   xorzen.cpp/src/model/igris.cpp xorzen.cpp/src/model/coherence_field.cpp \
+                   xorzen.cpp/src/model/routing.cpp xorzen.cpp/src/model/hass_block.cpp \
+                   xorzen.cpp/src/model/zmoe.cpp xorzen.cpp/src/model/xorzen_model.cpp; do
+            echo "  CC $(basename $f)"
+            $CXX $CXXFLAGS -c "$f" -o "$BUILD_DIR/$(basename ${f%.cpp}).o" || { echo "ERROR: $f"; exit 1; }
+          done
+          ar rcs "$BUILD_DIR/libxorzen_model.a" "$BUILD_DIR"/*.o
+
+          # Build parity harness (standalone, no model lib)
+          $CXX $CXXFLAGS tests/cpp_parity/cpp/parity_harness.cpp \
+            -L$TORCH_DIR/lib -ltorch -lc10 -ltorch_cpu -Wl,-rpath,$TORCH_DIR/lib \
+            -o tests/cpp_parity/cpp/parity_harness
+
+          # Build real model test
+          $CXX $CXXFLAGS tests/cpp_parity/cpp/real_model_test.cpp \
+            "$BUILD_DIR/libxorzen_model.a" \
+            -L$TORCH_DIR/lib -ltorch -lc10 -ltorch_cpu -Wl,-rpath,$TORCH_DIR/lib \
+            -o tests/cpp_parity/cpp/real_model_test
+
+          echo "Build complete."
+
+      - name: Smoke test — parity harness
+        shell: bash
         run: |
-          pip install --no-deps -e .
-          pip install numpy pydantic psutil einops tqdm scipy
+          export LD_LIBRARY_PATH=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')/lib:$LD_LIBRARY_PATH
           python tests/cpp_parity/generators/generate_all_fixtures.py
           python tests/cpp_parity/generators/write_simple_manifest.py
-          cd tests/cpp_parity/cpp
-          ./parity_harness 01_normalization ../fixtures/01_normalization /tmp/test_out
-          echo "Smoke test: harness runs OK"
+          python tests/cpp_parity/compare.py
 
-      - name: Upload binary
+      - name: Smoke test — real model forward parity
+        shell: bash
+        run: |
+          export LD_LIBRARY_PATH=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')/lib:$LD_LIBRARY_PATH
+          python tests/cpp_parity/generators/generate_full_model_fixture.py
+          ./tests/cpp_parity/cpp/real_model_test tests/cpp_parity/fixtures/15_full_model \
+            tests/cpp_parity/cpp_output/release_test forward
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
-          path: tests/cpp_parity/cpp/parity_harness
+          name: xorzen-cpp-${{ matrix.platform }}
+          path: |
+            tests/cpp_parity/cpp/build/libxorzen_model.a
+            tests/cpp_parity/cpp/parity_harness
+            tests/cpp_parity/cpp/real_model_test
+          retention-days: 90
 
   # ═══════════════════════════════════════════════════════════════
-  # Summary job — verify all artifacts
+  # Job 3: Summary (always runs, reports status)
   # ═══════════════════════════════════════════════════════════════
   release-summary:
     name: Release Summary
     runs-on: ubuntu-22.04
-    needs: [python-package, cpp-harness]
+    needs: [python-package, cpp-build]
     if: always()
     steps:
-      - uses: actions/checkout@v4
-
       - name: Print build results
         run: |
           echo "=== Release Build Summary ==="
           echo "Python package: ${{ needs.python-package.result }}"
-          echo "C++ harness (linux-x86_64): ${{ needs.cpp-harness.result }}"
+          echo "C++ build: ${{ needs.cpp-build.result }}"
           echo ""
-          echo "Artifacts will be available for download after workflow completion."
-          echo ""
-          if [ "${{ needs.python-package.result }}" != "success" ]; then
-            echo "WARNING: Python package build failed"
-          fi
-          if [ "${{ needs.cpp-harness.result }}" != "success" ]; then
-            echo "WARNING: Some C++ harness builds failed (check matrix)"
+          if [ "${{ needs.python-package.result }}" = "success" ] && [ "${{ needs.cpp-build.result }}" = "success" ]; then
+            echo "ALL RELEASE BUILDS PASSED"
+          else
+            echo "SOME BUILDS FAILED — check artifacts"
           fi
