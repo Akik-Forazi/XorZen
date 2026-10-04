@@ -288,6 +288,8 @@ jobs:
           BUILD_DIR=tests/cpp_parity/cpp/build
           mkdir -p "$BUILD_DIR"
           # Build the real model library
+          # Use -mavx2 -mfma for SIMD support (simd_ops.cpp requires AVX2)
+          MODEL_CXXFLAGS="-std=c++20 -O2 -fPIC -mavx2 -mfma -I$TORCH_DIR/include -I$TORCH_DIR/include/torch/csrc/api/include -Ixorzen.cpp/include"
           for f in xorzen.cpp/src/model/variants.cpp xorzen.cpp/src/utils/math_utils.cpp \
                    xorzen.cpp/src/utils/logger.cpp xorzen.cpp/src/optimized/simd_ops.cpp \
                    xorzen.cpp/src/optimized/thread_pool.cpp xorzen.cpp/src/core/tensor_utils.cpp \
@@ -297,8 +299,7 @@ jobs:
                    xorzen.cpp/src/model/routing.cpp xorzen.cpp/src/model/hass_block.cpp \
                    xorzen.cpp/src/model/zmoe.cpp xorzen.cpp/src/model/xorzen_model.cpp; do
             echo "Compiling $(basename $f)..."
-            g++ -std=c++20 -O2 -fPIC -I$TORCH_DIR/include -I$TORCH_DIR/include/torch/csrc/api/include \
-              -Ixorzen.cpp/include -c "$f" -o "$BUILD_DIR/$(basename ${f%.cpp}).o" || {
+            g++ $MODEL_CXXFLAGS -c "$f" -o "$BUILD_DIR/$(basename ${f%.cpp}).o" || {
               echo "ERROR: Failed to compile $f"
               exit 1
             }
