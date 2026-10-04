@@ -1,7 +1,7 @@
 """Generate a granular HASS-block fixture: captures each pathway output separately
 so we can isolate which pathway diverges in C++."""
 import sys
-sys.path.insert(0, "/home/z/my-project/XorZen")
+import os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from pathlib import Path
 import numpy as np
 import torch
@@ -43,7 +43,8 @@ with torch.no_grad():
     ffn_out = block.ffn(xf, width=block.ffn.max_width)
     block_out = residual + ffn_out
 
-OUT_DIR = ROOT = Path("/home/z/my-project/XorZen/tests/cpp_parity/fixtures/16_hass_block_granular")
+ROOT = Path(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+OUT_DIR = ROOT / "tests" / "cpp_parity" / "fixtures" / "16_hass_block_granular"
 if OUT_DIR.exists():
     import shutil
     shutil.rmtree(OUT_DIR)

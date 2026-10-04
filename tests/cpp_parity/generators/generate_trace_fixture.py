@@ -4,7 +4,7 @@ Generates a step-by-step fixture with every intermediate tensor in the HASS bloc
 so the C++ harness can compare each one and find the first divergence.
 """
 import sys, json
-sys.path.insert(0, "/home/z/my-project/XorZen")
+import os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 import torch
 import numpy as np
 from pathlib import Path

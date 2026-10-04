@@ -28,7 +28,7 @@ Components covered:
   12. ssm_pathway_full   — full SSMPathway.forward (the C++ has SSMPathwayImpl; includes conv, gates, scan, ln)
 """
 import sys
-sys.path.insert(0, "/home/z/my-project/XorZen")
+import os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import json
 import hashlib

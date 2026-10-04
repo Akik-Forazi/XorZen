@@ -11,7 +11,7 @@ This script:
   4. Also tests: does Python index_add_ vs loop-based scatter produce different results?
 """
 import sys
-sys.path.insert(0, "/home/z/my-project/XorZen")
+import os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 import torch
 import numpy as np
 from pathlib import Path

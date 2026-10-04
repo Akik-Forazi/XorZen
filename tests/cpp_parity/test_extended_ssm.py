@@ -24,7 +24,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-ROOT = Path("/home/z/my-project/XorZen")
+ROOT = Path(__file__).resolve().parent.parent.parent  # repo root
 sys.path.insert(0, str(ROOT))
 FIXTURES = ROOT / "tests" / "cpp_parity" / "fixtures"
 HARNESS = ROOT / "tests" / "cpp_parity" / "cpp" / "parity_harness"

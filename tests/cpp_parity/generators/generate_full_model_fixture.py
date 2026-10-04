@@ -15,7 +15,7 @@ Output: tests/cpp_parity/fixtures/15_full_model/
   - expected_*.bin (raw tensor bytes)
 """
 import sys
-sys.path.insert(0, "/home/z/my-project/XorZen")
+import os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import json
 from pathlib import Path
@@ -23,7 +23,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-ROOT = Path("/home/z/my-project/XorZen")
+ROOT = Path(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 OUT_DIR = ROOT / "tests" / "cpp_parity" / "fixtures" / "15_full_model"
 
 torch.manual_seed(42)

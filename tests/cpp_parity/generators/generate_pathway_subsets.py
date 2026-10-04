@@ -2,7 +2,7 @@
 Python's sparse dispatch passes to each pathway, run Python's pathway on them,
 and save everything for C++ comparison."""
 import sys, json
-sys.path.insert(0, "/home/z/my-project/XorZen")
+import os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 import torch, numpy as np
 from pathlib import Path
 

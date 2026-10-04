@@ -33,7 +33,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 
-ROOT = Path("/home/z/my-project/XorZen")
+ROOT = Path(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 sys.path.insert(0, str(ROOT))
 
 
