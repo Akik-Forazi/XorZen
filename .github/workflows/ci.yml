@@ -284,7 +284,12 @@ jobs:
       - name: Build and run end-to-end harness
         run: |
           export LD_LIBRARY_PATH=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')/lib:$LD_LIBRARY_PATH
-          tests/cpp_parity/cpp/build_e2e.sh
+          TORCH_DIR=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')
+          g++ -std=c++20 -O2 \
+            -I$TORCH_DIR/include -I$TORCH_DIR/include/torch/csrc/api/include \
+            -L$TORCH_DIR/lib tests/cpp_parity/cpp/end_to_end_harness.cpp \
+            -ltorch -lc10 -ltorch_cpu -Wl,-rpath,$TORCH_DIR/lib \
+            -o tests/cpp_parity/cpp/end_to_end_harness
           ./tests/cpp_parity/cpp/end_to_end_harness \
             tests/cpp_parity/fixtures/15_full_model \
             tests/cpp_parity/cpp_output/integration_e2e
