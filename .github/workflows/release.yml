@@ -203,7 +203,10 @@ jobs:
         run: |
           TORCH_DIR=$(python -c 'import torch, os; print(os.path.dirname(torch.__file__).replace(chr(92), "/"))')
           if [ "$RUNNER_OS" = "Windows" ]; then
-            export PATH="$TORCH_DIR/lib:$PATH"
+            # Copy torch DLLs next to parity_harness.exe for DLL resolution
+            for dll in torch c10 torch_cpu asmjit fbgemm clog sleef kineto; do
+              cp "$TORCH_DIR/lib/$dll.dll" tests/cpp_parity/cpp/ 2>/dev/null || true
+            done
           else
             export LD_LIBRARY_PATH="$TORCH_DIR/lib:$LD_LIBRARY_PATH"
           fi
@@ -216,13 +219,21 @@ jobs:
         run: |
           TORCH_DIR=$(python -c 'import torch, os; print(os.path.dirname(torch.__file__).replace(chr(92), "/"))')
           if [ "$RUNNER_OS" = "Windows" ]; then
-            export PATH="$TORCH_DIR/lib:$PATH"
+            # DLLs already copied in previous step, but ensure they're here
+            for dll in torch c10 torch_cpu asmjit fbgemm clog sleef kineto; do
+              cp "$TORCH_DIR/lib/$dll.dll" tests/cpp_parity/cpp/ 2>/dev/null || true
+            done
           else
             export LD_LIBRARY_PATH="$TORCH_DIR/lib:$LD_LIBRARY_PATH"
           fi
           python tests/cpp_parity/generators/generate_full_model_fixture.py
-          ./tests/cpp_parity/cpp/real_model_test tests/cpp_parity/fixtures/15_full_model \
-            tests/cpp_parity/cpp_output/release_test forward
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            ./tests/cpp_parity/cpp/real_model_test.exe tests/cpp_parity/fixtures/15_full_model \
+              tests/cpp_parity/cpp_output/release_test forward
+          else
+            ./tests/cpp_parity/cpp/real_model_test tests/cpp_parity/fixtures/15_full_model \
+              tests/cpp_parity/cpp_output/release_test forward
+          fi
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
