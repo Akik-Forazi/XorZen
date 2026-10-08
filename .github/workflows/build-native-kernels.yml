@@ -69,7 +69,7 @@ jobs:
         shell: bash
         run: |
           python -c "import torch; print(f'torch {torch.__version__} OK')"
-          TORCH_DIR=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')
+          TORCH_DIR=$(python -c 'import torch, os; print(os.path.dirname(torch.__file__).replace(chr(92), "/"))')
           echo "TORCH_DIR=$TORCH_DIR"
           # Check for libtorch — different filenames per platform
           ls "$TORCH_DIR/lib/libtorch.so" 2>/dev/null && echo "Found libtorch.so" || true
@@ -208,7 +208,7 @@ jobs:
       - name: Verify LibTorch
         shell: bash
         run: |
-          TORCH_DIR=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')
+          TORCH_DIR=$(python -c 'import torch, os; print(os.path.dirname(torch.__file__).replace(chr(92), "/"))')
           echo "TORCH_DIR=$TORCH_DIR"
           # Check for shared/static lib (platform-specific)
           ls "$TORCH_DIR/lib/libtorch.so" 2>/dev/null && echo "Found libtorch.so" || true
@@ -223,8 +223,8 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          export LD_LIBRARY_PATH=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')/lib:$LD_LIBRARY_PATH
-          TORCH_DIR=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')
+          export LD_LIBRARY_PATH=$(python -c 'import torch, os; print(os.path.dirname(torch.__file__).replace(chr(92), "/"))')/lib:$LD_LIBRARY_PATH
+          TORCH_DIR=$(python -c 'import torch, os; print(os.path.dirname(torch.__file__).replace(chr(92), "/"))')
           BUILD_DIR=tests/cpp_parity/cpp/build
           mkdir -p "$BUILD_DIR"
 
@@ -263,7 +263,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash
         run: |
-          TORCH_DIR=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')
+          TORCH_DIR=$(python -c 'import torch, os; print(os.path.dirname(torch.__file__).replace(chr(92), "/"))')
           BUILD_DIR=tests/cpp_parity/cpp/build
           mkdir -p "$BUILD_DIR"
 
@@ -297,8 +297,8 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          export LD_LIBRARY_PATH=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')/lib:$LD_LIBRARY_PATH
-          TORCH_DIR=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')
+          export LD_LIBRARY_PATH=$(python -c 'import torch, os; print(os.path.dirname(torch.__file__).replace(chr(92), "/"))')/lib:$LD_LIBRARY_PATH
+          TORCH_DIR=$(python -c 'import torch, os; print(os.path.dirname(torch.__file__).replace(chr(92), "/"))')
           BUILD_DIR=tests/cpp_parity/cpp/build
 
           CXX=g++
@@ -332,7 +332,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash
         run: |
-          TORCH_DIR=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')
+          TORCH_DIR=$(python -c 'import torch, os; print(os.path.dirname(torch.__file__).replace(chr(92), "/"))')
           BUILD_DIR=tests/cpp_parity/cpp/build
 
           # Install xorzen for fixture generation

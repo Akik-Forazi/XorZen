@@ -107,7 +107,7 @@ jobs:
 
       - name: Verify LibTorch from pip torch
         run: |
-          TORCH_DIR=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')
+          TORCH_DIR=$(python -c 'import torch, os; print(os.path.dirname(torch.__file__).replace(chr(92), "/"))')
           echo "TORCH_DIR=$TORCH_DIR"
           echo "=== Check lib ==="
           ls -la $TORCH_DIR/lib/libtorch.so || { echo "ERROR: libtorch.so not found"; exit 1; }
@@ -133,18 +133,18 @@ jobs:
 
       - name: Run component parity tests
         run: |
-          export LD_LIBRARY_PATH=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')/lib:$LD_LIBRARY_PATH
+          export LD_LIBRARY_PATH=$(python -c 'import torch, os; print(os.path.dirname(torch.__file__).replace(chr(92), "/"))')/lib:$LD_LIBRARY_PATH
           python tests/cpp_parity/compare.py
 
       - name: Build and run extended SSM tests
         run: |
-          export LD_LIBRARY_PATH=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')/lib:$LD_LIBRARY_PATH
+          export LD_LIBRARY_PATH=$(python -c 'import torch, os; print(os.path.dirname(torch.__file__).replace(chr(92), "/"))')/lib:$LD_LIBRARY_PATH
           python tests/cpp_parity/test_extended_ssm.py
 
       - name: Build and run training smoke test
         run: |
-          export LD_LIBRARY_PATH=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')/lib:$LD_LIBRARY_PATH
-          TORCH_DIR=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')
+          export LD_LIBRARY_PATH=$(python -c 'import torch, os; print(os.path.dirname(torch.__file__).replace(chr(92), "/"))')/lib:$LD_LIBRARY_PATH
+          TORCH_DIR=$(python -c 'import torch, os; print(os.path.dirname(torch.__file__).replace(chr(92), "/"))')
           g++ -std=c++20 -O2 \
             -I$TORCH_DIR/include -I$TORCH_DIR/include/torch/csrc/api/include \
             -L$TORCH_DIR/lib tests/cpp_parity/cpp/training_smoke_test.cpp \
@@ -155,8 +155,8 @@ jobs:
 
       - name: Build and run generation test
         run: |
-          export LD_LIBRARY_PATH=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')/lib:$LD_LIBRARY_PATH
-          TORCH_DIR=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')
+          export LD_LIBRARY_PATH=$(python -c 'import torch, os; print(os.path.dirname(torch.__file__).replace(chr(92), "/"))')/lib:$LD_LIBRARY_PATH
+          TORCH_DIR=$(python -c 'import torch, os; print(os.path.dirname(torch.__file__).replace(chr(92), "/"))')
           g++ -std=c++20 -O2 \
             -I$TORCH_DIR/include -I$TORCH_DIR/include/torch/csrc/api/include \
             -L$TORCH_DIR/lib tests/cpp_parity/cpp/generation_test.cpp \
@@ -242,7 +242,7 @@ jobs:
 
       - name: Verify LibTorch from pip torch
         run: |
-          TORCH_DIR=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')
+          TORCH_DIR=$(python -c 'import torch, os; print(os.path.dirname(torch.__file__).replace(chr(92), "/"))')
           echo "TORCH_DIR=$TORCH_DIR"
           ls -la $TORCH_DIR/lib/libtorch.so || { echo "ERROR: libtorch.so not found"; exit 1; }
           ls $TORCH_DIR/include/torch/csrc/api/include/torch/nn.h || { echo "ERROR: nn.h not found"; exit 1; }
@@ -261,8 +261,8 @@ jobs:
 
       - name: Build and run real model forward parity
         run: |
-          export LD_LIBRARY_PATH=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')/lib:$LD_LIBRARY_PATH
-          TORCH_DIR=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')
+          export LD_LIBRARY_PATH=$(python -c 'import torch, os; print(os.path.dirname(torch.__file__).replace(chr(92), "/"))')/lib:$LD_LIBRARY_PATH
+          TORCH_DIR=$(python -c 'import torch, os; print(os.path.dirname(torch.__file__).replace(chr(92), "/"))')
           BUILD_DIR=tests/cpp_parity/cpp/build
           mkdir -p "$BUILD_DIR"
           # Build the real model library
