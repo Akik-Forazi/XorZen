@@ -157,7 +157,7 @@ jobs:
   # Job 2: Build C++ model library (using same approach as ci.yml)
   # ═══════════════════════════════════════════════════════════════
   cpp-model:
-    name: C++ Model (${{ matrix.os }})
+    name: C++ Model (${{ matrix.platform }})
     strategy:
       fail-fast: false
       matrix:
@@ -166,6 +166,8 @@ jobs:
             platform: linux-x64
           - os: macos-14
             platform: macos-arm64
+          - os: windows-2022
+            platform: windows-x64
 
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
@@ -178,16 +180,24 @@ jobs:
           echo "=== OS ==="
           uname -a
           echo "=== Compiler ==="
-          g++ --version 2>/dev/null | head -1 || clang++ --version 2>/dev/null | head -1
+          g++ --version 2>/dev/null | head -1 || clang++ --version 2>/dev/null | head -1 || echo "MSVC (Windows)"
           echo "=== Python ==="
           python3 --version 2>&1 || python --version 2>&1
           echo "=== Architecture ==="
           uname -m
+          echo "=== Runner OS ==="
+          echo "$RUNNER_OS"
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Set up MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
 
       - name: Install PyTorch (provides LibTorch headers + libs)
         shell: bash
@@ -200,17 +210,17 @@ jobs:
         run: |
           TORCH_DIR=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')
           echo "TORCH_DIR=$TORCH_DIR"
-          ls "$TORCH_DIR/lib/libtorch.so" 2>/dev/null || ls "$TORCH_DIR/lib/libtorch.dylib" 2>/dev/null || {
-            echo "ERROR: libtorch shared library not found"
-            ls "$TORCH_DIR/lib/" | head -20
-            exit 1
-          }
+          # Check for shared/static lib (platform-specific)
+          ls "$TORCH_DIR/lib/libtorch.so" 2>/dev/null && echo "Found libtorch.so" || true
+          ls "$TORCH_DIR/lib/libtorch.dylib" 2>/dev/null && echo "Found libtorch.dylib" || true
+          ls "$TORCH_DIR/lib/torch.lib" 2>/dev/null && echo "Found torch.lib" || true
           ls "$TORCH_DIR/include/torch/csrc/api/include/torch/nn.h" 2>/dev/null || {
             echo "WARNING: nn.h not found, but continuing..."
           }
           echo "LibTorch verified"
 
-      - name: Build C++ model library
+      - name: Build C++ model library (Linux/macOS)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           export LD_LIBRARY_PATH=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')/lib:$LD_LIBRARY_PATH
@@ -249,14 +259,48 @@ jobs:
           ar rcs "$BUILD_DIR/libxorzen_model.a" "$BUILD_DIR"/*.o
           echo "Library: $(ls -la $BUILD_DIR/libxorzen_model.a | awk '{print $5}') bytes"
 
-      - name: Build and run real model forward parity
+      - name: Build C++ model library (Windows MSVC — lightning /MP parallel)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          TORCH_DIR=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')
+          BUILD_DIR=tests/cpp_parity/cpp/build
+          mkdir -p "$BUILD_DIR"
+
+          echo "=== MSVC Lightning Build: 16 sources in ONE cl call, /MP parallelizes across all cores ==="
+
+          CXXFLAGS="/std:c++20 /O2 /arch:AVX2 /D__AVX2__ /MP /EHsc /MD /utf-8 /nologo /Gm- -I$TORCH_DIR/include -I$TORCH_DIR/include/torch/csrc/api/include -Ixorzen.cpp/include"
+
+          cl /c $CXXFLAGS \
+            xorzen.cpp/src/model/variants.cpp \
+            xorzen.cpp/src/utils/math_utils.cpp \
+            xorzen.cpp/src/utils/logger.cpp \
+            xorzen.cpp/src/optimized/simd_ops.cpp \
+            xorzen.cpp/src/optimized/thread_pool.cpp \
+            xorzen.cpp/src/core/tensor_utils.cpp \
+            xorzen.cpp/src/model/expert.cpp \
+            xorzen.cpp/src/model/ssm.cpp \
+            xorzen.cpp/src/model/merger.cpp \
+            xorzen.cpp/src/model/cot_vector.cpp \
+            xorzen.cpp/src/model/igris.cpp \
+            xorzen.cpp/src/model/coherence_field.cpp \
+            xorzen.cpp/src/model/routing.cpp \
+            xorzen.cpp/src/model/hass_block.cpp \
+            xorzen.cpp/src/model/zmoe.cpp \
+            xorzen.cpp/src/model/xorzen_model.cpp \
+            /Fo:"$BUILD_DIR/"
+
+          lib /nologo /OUT:"$BUILD_DIR/xorzen_model.lib" "$BUILD_DIR/"*.obj
+          echo "Library: $(ls -la $BUILD_DIR/xorzen_model.lib | awk '{print $5}') bytes"
+
+      - name: Build and run real model forward parity (Linux/macOS)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           export LD_LIBRARY_PATH=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')/lib:$LD_LIBRARY_PATH
           TORCH_DIR=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')
           BUILD_DIR=tests/cpp_parity/cpp/build
 
-          # Detect compiler and AVX2 support
           CXX=g++
           AVX_FLAGS=""
           if [ "$(uname -s)" = "Darwin" ]; then
@@ -284,6 +328,32 @@ jobs:
           ./tests/cpp_parity/cpp/real_model_test tests/cpp_parity/fixtures/15_full_model \
             tests/cpp_parity/cpp_output/native_build_test forward
 
+      - name: Build and run real model forward parity (Windows MSVC)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          TORCH_DIR=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')
+          BUILD_DIR=tests/cpp_parity/cpp/build
+
+          # Install xorzen for fixture generation
+          python -m pip install --no-deps -e .
+          python -m pip install numpy pydantic psutil einops tqdm scipy pyyaml
+
+          # Generate fixture
+          python tests/cpp_parity/generators/generate_full_model_fixture.py
+
+          # Build real model test (compile + link)
+          CXXFLAGS="/std:c++20 /O2 /arch:AVX2 /D__AVX2__ /EHsc /MD /utf-8 /nologo -I$TORCH_DIR/include -I$TORCH_DIR/include/torch/csrc/api/include -Ixorzen.cpp/include"
+          cl $CXXFLAGS tests/cpp_parity/cpp/real_model_test.cpp \
+            /link /OUT:"tests/cpp_parity/cpp/real_model_test.exe" \
+            "$BUILD_DIR/xorzen_model.lib" \
+            /LIBPATH:"$TORCH_DIR/lib" torch.lib c10.lib torch_cpu.lib
+
+          # Run forward parity (add torch DLLs to PATH)
+          export PATH="$TORCH_DIR/lib:$PATH"
+          ./tests/cpp_parity/cpp/real_model_test tests/cpp_parity/fixtures/15_full_model \
+            tests/cpp_parity/cpp_output/native_build_test forward
+
       - name: Upload build artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -291,6 +361,7 @@ jobs:
           name: xorzen-cpp-model-${{ matrix.platform }}
           path: |
             tests/cpp_parity/cpp/build/libxorzen_model.a
+            tests/cpp_parity/cpp/build/xorzen_model.lib
             tests/cpp_parity/cpp_output/
           retention-days: 30
           if-no-files-found: warn

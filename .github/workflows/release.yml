@@ -71,6 +71,8 @@ jobs:
             platform: linux-x64
           - os: macos-14
             platform: macos-arm64
+          - os: windows-2022
+            platform: windows-x64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
     steps:
@@ -91,7 +93,14 @@ jobs:
         shell: bash
         run: python -m pip install --no-deps -e .
 
-      - name: Build C++ model library + parity harness
+      - name: Set up MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Build C++ model library (Linux/macOS)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           export LD_LIBRARY_PATH=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')/lib:$LD_LIBRARY_PATH
@@ -137,10 +146,65 @@ jobs:
 
           echo "Build complete."
 
+      - name: Build C++ model library (Windows MSVC — lightning /MP parallel)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          TORCH_DIR=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')
+          BUILD_DIR=tests/cpp_parity/cpp/build
+          mkdir -p "$BUILD_DIR"
+
+          echo "=== MSVC Lightning Build: 16 sources in ONE cl call, /MP parallelizes across all cores ==="
+
+          # MSVC flags: /MP = multi-process parallel compile, /O2 = optimize, /arch:AVX2 = SIMD
+          # /D__AVX2__ enables the manual AVX2 intrinsic path in simd_ops.cpp
+          CXXFLAGS="/std:c++20 /O2 /arch:AVX2 /D__AVX2__ /MP /EHsc /MD /utf-8 /nologo /Gm- -I$TORCH_DIR/include -I$TORCH_DIR/include/torch/csrc/api/include -Ixorzen.cpp/include"
+
+          # Single cl invocation — /MP compiles all 16 sources in parallel
+          cl /c $CXXFLAGS \
+            xorzen.cpp/src/model/variants.cpp \
+            xorzen.cpp/src/utils/math_utils.cpp \
+            xorzen.cpp/src/utils/logger.cpp \
+            xorzen.cpp/src/optimized/simd_ops.cpp \
+            xorzen.cpp/src/optimized/thread_pool.cpp \
+            xorzen.cpp/src/core/tensor_utils.cpp \
+            xorzen.cpp/src/model/expert.cpp \
+            xorzen.cpp/src/model/ssm.cpp \
+            xorzen.cpp/src/model/merger.cpp \
+            xorzen.cpp/src/model/cot_vector.cpp \
+            xorzen.cpp/src/model/igris.cpp \
+            xorzen.cpp/src/model/coherence_field.cpp \
+            xorzen.cpp/src/model/routing.cpp \
+            xorzen.cpp/src/model/hass_block.cpp \
+            xorzen.cpp/src/model/zmoe.cpp \
+            xorzen.cpp/src/model/xorzen_model.cpp \
+            /Fo:"$BUILD_DIR/"
+
+          # Create static library
+          lib /nologo /OUT:"$BUILD_DIR/xorzen_model.lib" "$BUILD_DIR/"*.obj
+
+          # Build parity harness (compile + link)
+          cl $CXXFLAGS tests/cpp_parity/cpp/parity_harness.cpp \
+            /link /OUT:"tests/cpp_parity/cpp/parity_harness.exe" \
+            /LIBPATH:"$TORCH_DIR/lib" torch.lib c10.lib torch_cpu.lib
+
+          # Build real model test (compile + link)
+          cl $CXXFLAGS tests/cpp_parity/cpp/real_model_test.cpp \
+            /link /OUT:"tests/cpp_parity/cpp/real_model_test.exe" \
+            "$BUILD_DIR/xorzen_model.lib" \
+            /LIBPATH:"$TORCH_DIR/lib" torch.lib c10.lib torch_cpu.lib
+
+          echo "=== Windows MSVC build complete ==="
+
       - name: Smoke test — parity harness
         shell: bash
         run: |
-          export LD_LIBRARY_PATH=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')/lib:$LD_LIBRARY_PATH
+          TORCH_DIR=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            export PATH="$TORCH_DIR/lib:$PATH"
+          else
+            export LD_LIBRARY_PATH="$TORCH_DIR/lib:$LD_LIBRARY_PATH"
+          fi
           python tests/cpp_parity/generators/generate_all_fixtures.py
           python tests/cpp_parity/generators/write_simple_manifest.py
           python tests/cpp_parity/compare.py
@@ -148,7 +212,12 @@ jobs:
       - name: Smoke test — real model forward parity
         shell: bash
         run: |
-          export LD_LIBRARY_PATH=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')/lib:$LD_LIBRARY_PATH
+          TORCH_DIR=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            export PATH="$TORCH_DIR/lib:$PATH"
+          else
+            export LD_LIBRARY_PATH="$TORCH_DIR/lib:$LD_LIBRARY_PATH"
+          fi
           python tests/cpp_parity/generators/generate_full_model_fixture.py
           ./tests/cpp_parity/cpp/real_model_test tests/cpp_parity/fixtures/15_full_model \
             tests/cpp_parity/cpp_output/release_test forward
@@ -159,8 +228,11 @@ jobs:
           name: xorzen-cpp-${{ matrix.platform }}
           path: |
             tests/cpp_parity/cpp/build/libxorzen_model.a
+            tests/cpp_parity/cpp/build/xorzen_model.lib
             tests/cpp_parity/cpp/parity_harness
+            tests/cpp_parity/cpp/parity_harness.exe
             tests/cpp_parity/cpp/real_model_test
+            tests/cpp_parity/cpp/real_model_test.exe
           retention-days: 90
 
   # ═══════════════════════════════════════════════════════════════
@@ -202,6 +274,7 @@ jobs:
             ### C++ Libraries
             - `xorzen-cpp-linux-x64/libxorzen_model.a` — Linux x86_64 static library
             - `xorzen-cpp-macos-arm64/libxorzen_model.a` — macOS ARM64 (Apple Silicon) static library
+            - `xorzen-cpp-windows-x64/xorzen_model.lib` — Windows x86_64 static library (MSVC)
             - Each platform also includes `parity_harness` and `real_model_test` binaries
 
             ## Installation
@@ -213,12 +286,19 @@ jobs:
             pip install ./xorzen-*.whl
             ```
 
-            ### C++
+            ### C++ (Linux/macOS)
             ```bash
             # Download libxorzen_model.a for your platform
             g++ -std=c++20 -O2 -Ixorzen.cpp/include your_app.cpp \
                 -L. -lxorzen_model \
                 -ltorch -lc10 -ltorch_cpu -o your_app
+            ```
+
+            ### C++ (Windows MSVC)
+            ```cmd
+            :: Download xorzen_model.lib
+            cl /std:c++20 /O2 /EHsc /MD /Ixorzen.cpp/include your_app.cpp \
+                xorzen_model.lib torch.lib c10.lib torch_cpu.lib /Fe:your_app.exe
             ```
 
             ## Verification
@@ -236,6 +316,7 @@ jobs:
             release-assets/python-package/*
             release-assets/xorzen-cpp-linux-x64/*
             release-assets/xorzen-cpp-macos-arm64/*
+            release-assets/xorzen-cpp-windows-x64/*
 
   # ═══════════════════════════════════════════════════════════════
   # Job 4: Summary (always runs, reports status)
