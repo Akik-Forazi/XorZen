@@ -541,7 +541,6 @@ torch::Tensor fused_layernorm_gelu_simd(
     return out;
 }
 
-}
 #endif // XORZEN_HAS_X86_SIMD
- // namespace optimized
+} // namespace optimized
 } // namespace xorzen
