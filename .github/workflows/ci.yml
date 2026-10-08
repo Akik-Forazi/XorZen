@@ -111,29 +111,7 @@ jobs:
           echo "TORCH_DIR=$TORCH_DIR"
           echo "=== Check lib ==="
           ls -la $TORCH_DIR/lib/libtorch.so || { echo "ERROR: libtorch.so not found"; exit 1; }
-          echo "=== Check include ==="
-          ls -la $TORCH_DIR/include/torch/ 2>&1 | head -5
-          ls -la $TORCH_DIR/include/torch/csrc/api/include/torch/nn.h || { echo "ERROR: nn.h not found"; exit 1; }
-          echo "=== Check for torch.h ==="
-          if [ ! -f "$TORCH_DIR/include/torch/torch.h" ]; then
-            echo "torch.h not found — creating symlink to torch/csrc/api/include"
-            # The pip torch has C++ API headers under include/torch/csrc/api/include
-            # but not the main torch.h umbrella. We create a wrapper.
-            mkdir -p /tmp/torch_include/torch
-            ln -sf $TORCH_DIR/include/torch/csrc/api/include/torch/* /tmp/torch_include/torch/
-            ln -sf $TORCH_DIR/include/torch /tmp/torch_include/torch_full
-            ln -sf $TORCH_DIR/include/ATen /tmp/torch_include/ATen
-            ln -sf $TORCH_DIR/include/c10 /tmp/torch_include/c10
-            echo "Created /tmp/torch_include with symlinks"
-            ls /tmp/torch_include/torch/ | head -10
-          fi
-          echo "LibTorch verified from pip torch"
-
-      - name: Verify LibTorch headers exist
-        run: |
-          TORCH_DIR=$(python -c 'import torch; print(torch.__file__.rsplit("/",1)[0])')
-          echo "TORCH_DIR=$TORCH_DIR"
-          ls -la $TORCH_DIR/lib/libtorch.so || { echo "ERROR: libtorch.so not found"; exit 1; }
+          echo "=== Check headers ==="
           ls $TORCH_DIR/include/torch/csrc/api/include/torch/nn.h || { echo "ERROR: nn.h not found"; exit 1; }
           echo "LibTorch headers and libraries verified from pip torch."
 

@@ -298,46 +298,25 @@ jobs:
           if-no-files-found: warn
 
   # ═══════════════════════════════════════════════════════════════
-  # Job 3: Release (only on tags)
+  # Job 3: Summary (always runs, reports status)
+  # Note: GitHub Releases are published by release.yml on tag push.
   # ═══════════════════════════════════════════════════════════════
-  release:
-    name: Publish Release
+  build-summary:
+    name: Native Build Summary
     needs: [python-kernels, cpp-model]
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: always()
     runs-on: ubuntu-22.04
-    permissions:
-      contents: write
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: release-assets/
-
-      - name: List all artifacts
-        run: find release-assets/ -type f | sort
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: XorZen ${{ github.ref_name }}
-          body: |
-            # XorZen ${{ github.ref_name }}
-
-            ## Pre-compiled Native Kernels
-
-            See artifacts for platform-specific builds.
-
-            ## Installation
-
-            ```bash
-            pip install git+https://github.com/Akik-Forazi/XorZen.git
-            ```
-
-            ## Changes
-
-            See [commit history](https://github.com/Akik-Forazi/XorZen/commits/${{ github.ref_name }})
-          draft: false
-          prerelease: ${{ contains(github.ref_name, 'rc') || contains(github.ref_name, 'beta') }}
+      - name: Print build results
+        run: |
+          echo "=== Native Kernels Build Summary ==="
+          echo "Python kernels: ${{ needs.python-kernels.result }}"
+          echo "C++ model:      ${{ needs.cpp-model.result }}"
+          echo ""
+          if [ "${{ needs.python-kernels.result }}" = "success" ] && [ "${{ needs.cpp-model.result }}" = "success" ]; then
+            echo "ALL NATIVE BUILD JOBS PASSED"
+          else
+            echo "SOME NATIVE BUILD JOBS FAILED — check artifacts"
+          fi
+          echo ""
+          echo "Note: GitHub Releases are published by release.yml on tag push (v*)."

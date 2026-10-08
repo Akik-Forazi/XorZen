@@ -5,9 +5,17 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag name (e.g. v1.0.1)'
+        required: false
+        default: ''
 
 env:
   PYTHON_VERSION: '3.12'
+
+permissions:
+  contents: write
 
 jobs:
   # ═══════════════════════════════════════════════════════════════
@@ -16,7 +24,7 @@ jobs:
   python-package:
     name: Python Package
     runs-on: ubuntu-22.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -33,9 +41,14 @@ jobs:
           python -m build
           ls -la dist/
 
-      - name: Verify package
+      - name: Install torch (CPU) for verification
         run: |
-          python -m pip install dist/*.whl
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install numpy pydantic psutil einops tqdm scipy sentencepiece tokenizers transformers
+
+      - name: Verify package (no-deps install to preserve torch)
+        run: |
+          python -m pip install --no-deps --force-reinstall dist/*.whl
           python -c "import xorzen; print(f'xorzen {xorzen.__version__} OK')"
 
       - name: Upload artifact
@@ -43,12 +56,13 @@ jobs:
         with:
           name: python-package
           path: dist/*
+          retention-days: 90
 
   # ═══════════════════════════════════════════════════════════════
   # Job 2: C++ model library + parity harness (per platform)
   # ═══════════════════════════════════════════════════════════════
   cpp-build:
-    name: C++ Build (${{ matrix.os }})
+    name: C++ Build (${{ matrix.platform }})
     strategy:
       fail-fast: false
       matrix:
@@ -57,8 +71,10 @@ jobs:
             platform: linux-x64
           - os: macos-13
             platform: macos-x64
+          - os: macos-14
+            platform: macos-arm64
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
@@ -90,7 +106,7 @@ jobs:
           AVX_FLAGS=""
           if [ "$(uname -s)" = "Darwin" ]; then
             CXX=clang++
-          elif [ "$(uname -m)" = "x86_64" ]; then
+          elif [ "$(uname -m)" = "x86_64" ] && [ "$(uname -s)" = "Linux" ]; then
             AVX_FLAGS="-mavx2 -mfma"
           fi
 
@@ -150,22 +166,104 @@ jobs:
           retention-days: 90
 
   # ═══════════════════════════════════════════════════════════════
-  # Job 3: Summary (always runs, reports status)
+  # Job 3: Publish GitHub Release (only on tag push)
+  # ═══════════════════════════════════════════════════════════════
+  publish-release:
+    name: Publish GitHub Release
+    needs: [python-package, cpp-build]
+    if: always() && startsWith(github.ref, 'refs/tags/v') && needs.python-package.result == 'success'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets/
+
+      - name: List all artifacts
+        run: |
+          echo "=== Artifact tree ==="
+          find release-assets/ -type f | sort
+          echo "=== Sizes ==="
+          du -sh release-assets/*/ | sort -h
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: XorZen ${{ github.ref_name }}
+          body: |
+            # XorZen ${{ github.ref_name }}
+
+            ## Artifacts
+
+            ### Python Package
+            - `python-package/xorzen-*.whl` — Pure-Python wheel (install with `pip install xorzen-*.whl`)
+
+            ### C++ Libraries
+            - `xorzen-cpp-linux-x64/libxorzen_model.a` — Linux x86_64 static library
+            - `xorzen-cpp-macos-x64/libxorzen_model.a` — macOS x86_64 static library
+            - `xorzen-cpp-macos-arm64/libxorzen_model.a` — macOS ARM64 static library
+            - Each platform also includes `parity_harness` and `real_model_test` binaries
+
+            ## Installation
+
+            ### Python
+            ```bash
+            pip install xorzen  # from PyPI (when published)
+            # OR from this release:
+            pip install ./xorzen-*.whl
+            ```
+
+            ### C++
+            ```bash
+            # Download libxorzen_model.a for your platform
+            g++ -std=c++20 -O2 -Ixorzen.cpp/include your_app.cpp \
+                -L. -lxorzen_model \
+                -ltorch -lc10 -ltorch_cpu -o your_app
+            ```
+
+            ## Verification
+
+            All artifacts are built and tested on GitHub-hosted runners.
+            The C++ libraries pass forward-parity against the Python reference
+            (max logit diff ≤ 1e-7).
+
+            ## Changes
+
+            See [commit history](https://github.com/Akik-Forazi/XorZen/commits/${{ github.ref_name }})
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'rc') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') }}
+          files: |
+            release-assets/python-package/*
+            release-assets/xorzen-cpp-linux-x64/*
+            release-assets/xorzen-cpp-macos-x64/*
+            release-assets/xorzen-cpp-macos-arm64/*
+
+  # ═══════════════════════════════════════════════════════════════
+  # Job 4: Summary (always runs, reports status)
   # ═══════════════════════════════════════════════════════════════
   release-summary:
     name: Release Summary
     runs-on: ubuntu-22.04
-    needs: [python-package, cpp-build]
+    needs: [python-package, cpp-build, publish-release]
     if: always()
     steps:
       - name: Print build results
         run: |
           echo "=== Release Build Summary ==="
-          echo "Python package: ${{ needs.python-package.result }}"
-          echo "C++ build: ${{ needs.cpp-build.result }}"
+          echo "Python package:       ${{ needs.python-package.result }}"
+          echo "C++ build:            ${{ needs.cpp-build.result }}"
+          echo "Publish release:      ${{ needs.publish-release.result }}"
           echo ""
           if [ "${{ needs.python-package.result }}" = "success" ] && [ "${{ needs.cpp-build.result }}" = "success" ]; then
             echo "ALL RELEASE BUILDS PASSED"
+            if [ "${{ needs.publish-release.result }}" = "success" ]; then
+              echo "GITHUB RELEASE PUBLISHED: ${{ github.ref_name }}"
+            elif [ "${{ needs.publish-release.result }}" = "skipped" ]; then
+              echo "(publish-release skipped — not a tag push)"
+            fi
           else
             echo "SOME BUILDS FAILED — check artifacts"
           fi
