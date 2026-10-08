@@ -262,6 +262,8 @@ jobs:
       - name: Build C++ model library (Windows MSVC — lightning /MP parallel)
         if: runner.os == 'Windows'
         shell: bash
+        env:
+          MSYS_NO_PATHCONV: '1'
         run: |
           TORCH_DIR=$(python -c 'import torch, os; print(os.path.dirname(torch.__file__).replace(chr(92), "/"))')
           BUILD_DIR=tests/cpp_parity/cpp/build
@@ -331,6 +333,8 @@ jobs:
       - name: Build and run real model forward parity (Windows MSVC)
         if: runner.os == 'Windows'
         shell: bash
+        env:
+          MSYS_NO_PATHCONV: '1'
         run: |
           TORCH_DIR=$(python -c 'import torch, os; print(os.path.dirname(torch.__file__).replace(chr(92), "/"))')
           BUILD_DIR=tests/cpp_parity/cpp/build
