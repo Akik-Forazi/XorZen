@@ -69,8 +69,6 @@ jobs:
         include:
           - os: ubuntu-22.04
             platform: linux-x64
-          - os: macos-13
-            platform: macos-x64
           - os: macos-14
             platform: macos-arm64
     runs-on: ${{ matrix.os }}
@@ -203,8 +201,7 @@ jobs:
 
             ### C++ Libraries
             - `xorzen-cpp-linux-x64/libxorzen_model.a` — Linux x86_64 static library
-            - `xorzen-cpp-macos-x64/libxorzen_model.a` — macOS x86_64 static library
-            - `xorzen-cpp-macos-arm64/libxorzen_model.a` — macOS ARM64 static library
+            - `xorzen-cpp-macos-arm64/libxorzen_model.a` — macOS ARM64 (Apple Silicon) static library
             - Each platform also includes `parity_harness` and `real_model_test` binaries
 
             ## Installation
@@ -238,7 +235,6 @@ jobs:
           files: |
             release-assets/python-package/*
             release-assets/xorzen-cpp-linux-x64/*
-            release-assets/xorzen-cpp-macos-x64/*
             release-assets/xorzen-cpp-macos-arm64/*
 
   # ═══════════════════════════════════════════════════════════════
