@@ -199,41 +199,44 @@ jobs:
           echo "=== Windows MSVC build complete ==="
 
       - name: Smoke test — parity harness
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           TORCH_DIR=$(python -c 'import torch, os; print(os.path.dirname(torch.__file__).replace(chr(92), "/"))')
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            # Copy torch DLLs next to parity_harness.exe for DLL resolution
-            for dll in torch c10 torch_cpu asmjit fbgemm clog sleef kineto; do
-              cp "$TORCH_DIR/lib/$dll.dll" tests/cpp_parity/cpp/ 2>/dev/null || true
-            done
-          else
-            export LD_LIBRARY_PATH="$TORCH_DIR/lib:$LD_LIBRARY_PATH"
-          fi
+          export LD_LIBRARY_PATH="$TORCH_DIR/lib:$LD_LIBRARY_PATH"
+          python tests/cpp_parity/generators/generate_all_fixtures.py
+          python tests/cpp_parity/generators/write_simple_manifest.py
+          python tests/cpp_parity/compare.py
+
+      - name: Smoke test — parity harness (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          MSYS_NO_PATHCONV: '1'
+        run: |
+          TORCH_DIR=$(python -c 'import torch, os; print(os.path.dirname(torch.__file__).replace(chr(92), "/"))')
+          # Copy ALL torch DLLs next to exes for DLL resolution
+          cp "$TORCH_DIR/lib/"*.dll tests/cpp_parity/cpp/ 2>/dev/null || true
           python tests/cpp_parity/generators/generate_all_fixtures.py
           python tests/cpp_parity/generators/write_simple_manifest.py
           python tests/cpp_parity/compare.py
 
       - name: Smoke test — real model forward parity
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           TORCH_DIR=$(python -c 'import torch, os; print(os.path.dirname(torch.__file__).replace(chr(92), "/"))')
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            # DLLs already copied in previous step, but ensure they're here
-            for dll in torch c10 torch_cpu asmjit fbgemm clog sleef kineto; do
-              cp "$TORCH_DIR/lib/$dll.dll" tests/cpp_parity/cpp/ 2>/dev/null || true
-            done
-          else
-            export LD_LIBRARY_PATH="$TORCH_DIR/lib:$LD_LIBRARY_PATH"
-          fi
+          export LD_LIBRARY_PATH="$TORCH_DIR/lib:$LD_LIBRARY_PATH"
           python tests/cpp_parity/generators/generate_full_model_fixture.py
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            ./tests/cpp_parity/cpp/real_model_test.exe tests/cpp_parity/fixtures/15_full_model \
-              tests/cpp_parity/cpp_output/release_test forward
-          else
-            ./tests/cpp_parity/cpp/real_model_test tests/cpp_parity/fixtures/15_full_model \
-              tests/cpp_parity/cpp_output/release_test forward
-          fi
+          ./tests/cpp_parity/cpp/real_model_test tests/cpp_parity/fixtures/15_full_model \
+            tests/cpp_parity/cpp_output/release_test forward
+
+      - name: Smoke test — real model forward parity (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          python tests/cpp_parity/generators/generate_full_model_fixture.py
+          tests\cpp_parity\cpp\real_model_test.exe tests\cpp_parity\fixtures\15_full_model tests\cpp_parity\cpp_output\release_test forward
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
