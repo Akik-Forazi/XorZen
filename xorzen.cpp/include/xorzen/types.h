@@ -68,7 +68,11 @@ struct ModelConfig {
     int64_t min_depth = 1;
     int64_t n_heads = 12;
     int64_t num_attention_heads = 12;
-    int64_t n_kv_heads = 4;  // Grouped-query attention
+    // NOTE: n_kv_heads is declared for API compatibility but is NOT consumed by
+    // LocalAttentionPathwayImpl (hass_block.cpp:18-21 always builds q/k/v as
+    // Linear(hidden,hidden) — full MHA). Setting n_kv_heads < n_heads does NOT
+    // enable GQA; it is silently ignored. Tracked as a known gap.
+    int64_t n_kv_heads = 4;  // GQA config (NOT YET WIRED — see hass_block.cpp)
     int64_t d_ff = 3072;
     int64_t max_seq_len = 2048;
     int64_t context_length = 2048;
@@ -181,8 +185,14 @@ struct ModelConfig {
     // Training configuration
     float dropout = 0.1f;
     float layer_norm_eps = 1e-5f;
-    bool use_rope = true;
-    float rope_theta = 10000.0f;
+    // NOTE: use_rope / rope_theta are declared for API compatibility but are NOT
+    // implemented. XORZEN uses learned absolute position embeddings
+    // (xorzen_model.cpp: PositionEmbedding lookup table of size context_length).
+    // Setting use_rope=true does NOT enable RoPE — it is silently ignored.
+    // Tracked as a known gap; do not remove without coordinating with Python side
+    // (which also has no RoPE). See docs/parity/CPP_PORT_DECISION.md.
+    bool use_rope = false;            // changed from true → false (honest default)
+    float rope_theta = 10000.0f;      // unused; kept for struct layout compatibility
     bool gradient_checkpointing = false;
     int64_t pad_token_id = 0;
     int64_t eos_token_id = 2;

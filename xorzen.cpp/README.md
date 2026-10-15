@@ -63,7 +63,7 @@ xorzen.cpp/
 │   │   ├── softmax.cpp      # Numerically stable softmax
 │   │   ├── layernorm.cpp    # RMSNorm (faster than LayerNorm)
 │   │   ├── silu.cpp         # SiLU activation (vectorized)
-│   │   ├── rope.cpp         # Rotary Position Embedding
+│   │   ├── rope.cpp         # (NOT IMPLEMENTED — declared in config but unused)
 │   │   └── quantize.cpp     # INT8/BF16 quantization kernels
 │   │
 │   ├── utils/               # Infrastructure
@@ -89,8 +89,8 @@ xorzen.cpp/
 
 **1. XorzenX Transformer**
 - 24-layer decoder-only architecture (277M params)
-- Grouped-query attention (8 heads, 2 KV heads)
-- RoPE positional embeddings
+- Grouped-query attention (8 heads, 2 KV heads) — note: `n_kv_heads` config exists but attention compute uses full MHA (GQA not yet wired)
+- Learned absolute position embeddings (RoPE is declared in config but NOT implemented)
 - RMSNorm (faster than LayerNorm)
 - Context length: 8192 tokens
 

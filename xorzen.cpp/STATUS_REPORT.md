@@ -309,7 +309,7 @@ cmake --build build --target xorzen_backend -j8
 | MoE (192 experts) | ✅ | ✅ | Implemented |
 | Latent CoT | ✅ | ✅ (zeroed) | Partially implemented |
 | RMSNorm | ✅ | ✅ | Implemented |
-| RoPE | ✅ | ✅ | Implemented |
+| RoPE | ❌ | ❌ | Not implemented — uses learned absolute position embeddings. `use_rope` config field exists but is ignored. |
 | **Training** |
 | Forward pass | ✅ | ✅ | Implemented |
 | Backward pass | ✅ | ✅ (LibTorch autograd) | Implemented |
