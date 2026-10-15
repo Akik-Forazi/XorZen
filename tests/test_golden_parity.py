@@ -314,8 +314,10 @@ def capture_all(model: torch.nn.Module,
     with torch.no_grad():
         block = model.blocks[0]
         x_attn = block.ln1(captured["block_0_input"])
+        # LocalAttentionPathway.forward now returns (output, present_kv).
+        # We only need the output for this capture.
         captured["block_0_local_out"] = block.pathways["local"](
-            x_attn, None, None).detach().clone()
+            x_attn, None, None)[0].detach().clone()
         captured["block_0_low_rank_out"] = block.pathways["low_rank"](
             x_attn).detach().clone()
         captured["block_0_ssm_out"] = block.pathways["ssm"].forward_parallel(

@@ -128,12 +128,12 @@ class TestCausalAttention:
             x[0, t, 0] = float(t)
 
         with torch.no_grad():
-            out = attn(x)
+            out = attn(x)[0]  # [0] = output (present_kv is [1])
 
         x2 = x.clone()
         x2[0, 8:, 0] = 999.0
         with torch.no_grad():
-            out2 = attn(x2)
+            out2 = attn(x2)[0]  # [0] = output
 
         # Positions 0-7 must be identical
         diff = (out[0, :8, :] - out2[0, :8, :]).abs().max().item()
@@ -149,7 +149,7 @@ class TestCausalAttention:
             causal=True,
         )
         x = torch.randn(1, 8, cfg.hidden_size)
-        out = attn(x)
+        out = attn(x)[0]  # [0] = output
         assert torch.isfinite(out).all()
         assert out.shape == (1, 8, cfg.hidden_size)
 

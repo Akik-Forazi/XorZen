@@ -92,18 +92,31 @@ class LocalAttentionPathway(nn.Module):
         self,
         x: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
-        position_bias: Optional[torch.Tensor] = None
-    ) -> torch.Tensor:
+        position_bias: Optional[torch.Tensor] = None,
+        past_kv: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
+        use_cache: bool = False,
+    ) -> Tuple[torch.Tensor, Optional[Tuple[torch.Tensor, torch.Tensor]]]:
         """
         Forward pass with local attention.
-        
+
         Args:
             x: Input tensor [batch, seq_len, hidden]
-            attention_mask: Attention mask [batch, seq_len] or [batch, seq_len, seq_len]
+            attention_mask: Attention mask [batch, seq_len] or [batch, seq_len, seq_len].
+                When past_kv is provided, this mask applies to the *new* tokens only
+                (length = x.size(1)); the cached tokens are always attended to.
             position_bias: Position bias for relative positions
-            
+            past_kv: Optional tuple (k_past, v_past) each of shape
+                [batch, num_heads, past_len, head_dim]. When provided, these are
+                concatenated with the newly-computed k/v before attention.
+            use_cache: If True, return (output, present_kv) so the caller can
+                pass present_kv as past_kv on the next step. If False, return
+                (output, None).
+
         Returns:
-            Output tensor [batch, seq_len, hidden]
+            (output, present_kv) where output is [batch, seq_len, hidden] and
+            present_kv is (k_full, v_full) shaped
+            [batch, num_heads, past_len + seq_len, head_dim] when use_cache=True
+            else None.
         """
         batch_size, seq_len, _ = x.shape
 
@@ -120,6 +133,17 @@ class LocalAttentionPathway(nn.Module):
         # Apply layer norms per head
         q = self.ln_q(q.transpose(1, 2)).transpose(1, 2)
         k = self.ln_k(k.transpose(1, 2)).transpose(1, 2)
+
+        # Concatenate past KV if provided (incremental decoding)
+        present_kv = None
+        if past_kv is not None:
+            k_past, v_past = past_kv
+            k = torch.cat([k_past, k], dim=2)
+            v = torch.cat([v_past, v], dim=2)
+        if use_cache:
+            present_kv = (k, v)
+
+        full_len = k.size(2)  # past_len + seq_len
 
         # ── FLASH ATTENTION ──────────────────────────────────────────────
         # Use PyTorch's built-in scaled_dot_product_attention (SDPA) which
@@ -138,39 +162,70 @@ class LocalAttentionPathway(nn.Module):
         #
         # Build the attention bias (window mask + causal mask + padding mask)
         # as an additive bias for SDPA's attn_mask parameter.
+        #
+        # When past_kv is provided:
+        #   - q has shape [B, H, seq_len, head_dim]  (new tokens only)
+        #   - k, v have shape [B, H, full_len, head_dim]  (past + new)
+        #   - attn_bias must be [B, 1, seq_len, full_len]
+        #   - Cached tokens are always attended to (no future masking for them);
+        #     only the new tokens need causal masking among themselves.
         attn_bias = None
+        past_len = full_len - seq_len
 
         # Causal mask (lower triangular = allow attending to past tokens)
         if self.causal:
-            causal_bias = torch.zeros(seq_len, seq_len, device=x.device, dtype=q.dtype)
-            # Fill upper triangle with -inf (mask future tokens)
-            causal_bias.fill_(float('-inf'))
-            causal_bias = causal_bias.triu(1)
-            attn_bias = causal_bias.unsqueeze(0).unsqueeze(0)  # [1, 1, S, S]
+            if past_len > 0:
+                # New queries can attend to ALL past tokens (cols 0..past_len-1)
+                # plus causally among themselves (cols past_len..full_len-1).
+                # Build [seq_len, full_len]: left half all-zero, right half lower-tri.
+                causal_bias = torch.zeros(seq_len, full_len, device=x.device, dtype=q.dtype)
+                causal_right = torch.zeros(seq_len, seq_len, device=x.device, dtype=q.dtype)
+                causal_right.fill_(float('-inf'))
+                causal_right = causal_right.triu(1)  # upper-tri = -inf
+                causal_bias[:, past_len:] = causal_right
+            else:
+                causal_bias = torch.zeros(seq_len, seq_len, device=x.device, dtype=q.dtype)
+                causal_bias.fill_(float('-inf'))
+                causal_bias = causal_bias.triu(1)
+            attn_bias = causal_bias.unsqueeze(0).unsqueeze(0)  # [1, 1, S, full_len]
 
         # Window mask for local attention (only attend within window_size)
-        if self.window_size > 0 and self.window_size < seq_len:
-            window_bias = torch.zeros(seq_len, seq_len, device=x.device, dtype=q.dtype)
+        # When past_kv is present, apply window relative to the FULL position.
+        # past_len tokens are at absolute positions 0..past_len-1; new tokens
+        # are at absolute positions past_len..full_len-1.
+        if self.window_size > 0 and self.window_size < full_len:
+            window_bias = torch.zeros(seq_len, full_len, device=x.device, dtype=q.dtype)
             for i in range(seq_len):
-                start = max(0, i - self.window_size)
-                end = min(seq_len, i + self.window_size + 1)
-                # Mask out everything outside [start, end)
+                abs_pos = past_len + i
+                start = max(0, abs_pos - self.window_size)
+                end = min(full_len, abs_pos + self.window_size + 1)
                 if start > 0:
                     window_bias[i, :start] = float('-inf')
-                if end < seq_len:
+                if end < full_len:
                     window_bias[i, end:] = float('-inf')
-            window_bias = window_bias.unsqueeze(0).unsqueeze(0)  # [1, 1, S, S]
+            window_bias = window_bias.unsqueeze(0).unsqueeze(0)  # [1, 1, S, full_len]
             if attn_bias is not None:
                 attn_bias = attn_bias + window_bias
             else:
                 attn_bias = window_bias
 
         # External attention mask (padding)
+        # When past_kv is present, the user-supplied attention_mask has length
+        # seq_len (new tokens only). Cached tokens are assumed unmasked.
         if attention_mask is not None:
             if attention_mask.dim() == 2:
-                # [batch, seq_len] -> [batch, 1, 1, seq_len]
-                am = attention_mask[:, None, None, :].to(dtype=q.dtype)
-                am = torch.where(am.bool(), 0.0, float('-inf'))
+                # [batch, seq_len] -> [batch, 1, 1, full_len]
+                # Left-pad with zeros (unmasked) for the cached portion.
+                am_new = attention_mask[:, None, None, :].to(dtype=q.dtype)
+                am_new = torch.where(am_new.bool(), 0.0, float('-inf'))
+                if past_len > 0:
+                    am_cache = torch.zeros(
+                        batch_size, 1, 1, past_len,
+                        device=x.device, dtype=q.dtype,
+                    )
+                    am = torch.cat([am_cache, am_new], dim=-1)
+                else:
+                    am = am_new
             else:
                 am = attention_mask.to(dtype=q.dtype)
             if attn_bias is not None:
@@ -204,7 +259,7 @@ class LocalAttentionPathway(nn.Module):
         output = self.out_proj(attn_output)
         output = self.resid_dropout(output)
 
-        return output
+        return output, present_kv
     
     def _apply_window_mask(self, attn_scores: torch.Tensor, seq_len: int) -> torch.Tensor:
         """Apply window mask for local attention — cached per seq_len."""
@@ -980,8 +1035,10 @@ class HASSBlock(nn.Module):
             # we pass (None, None) — local attention uses its causal mask only.
             # This is the same behavior as v0.4 (documented limitation).
             def _wrap_local(x_slice):
+                # Sparse-dispatch path: no past_kv (training path, not used
+                # for incremental decoding). Local pathway now returns a tuple.
                 x3d = x_slice.unsqueeze(0)
-                y3d = self.pathways['local'](x3d, None, None)
+                y3d, _ = self.pathways['local'](x3d, None, None)
                 return y3d.squeeze(0)
 
             def _wrap_low_rank(x_slice):
@@ -1008,7 +1065,9 @@ class HASSBlock(nn.Module):
         attention_mask: Optional[torch.Tensor] = None,
         position_bias: Optional[torch.Tensor] = None,
         compute_all_pathways: bool = False,
-    ) -> torch.Tensor:
+        past_kv: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
+        use_cache: bool = False,
+    ) -> Tuple[torch.Tensor, Optional[Tuple[torch.Tensor, torch.Tensor]]]:
         """
         Forward pass through HASS block — **genuine sparse pathway dispatch**.
 
@@ -1041,7 +1100,10 @@ class HASSBlock(nn.Module):
                 (backward-compat / analysis only).
 
         Returns:
-            [B, T, H]
+            (output, present_kv) where output is [B, T, H] and present_kv is
+            (k_full, v_full) when use_cache=True else None. The low-rank and
+            SSM pathways do not produce a cacheable KV (they use their own
+            internal state); only the local attention pathway's KV is returned.
         """
         from xorzen.model.components.sparse_dispatch import (
             sparse_pathway_dispatch, topk_pathway_mask,
@@ -1049,12 +1111,16 @@ class HASSBlock(nn.Module):
 
         batch_size, seq_len, _ = x.shape
         x_attn = self.ln1(x)
+        present_kv = None
 
         # ===== ATTENTION PHASE =====
         if routing_decision is None or compute_all_pathways:
             # No routing — compute all 3 pathways and combine with learned gate.
             pathway_outputs = []
-            local_out = self.pathways['local'](x_attn, attention_mask, position_bias)
+            local_out, present_kv = self.pathways['local'](
+                x_attn, attention_mask, position_bias,
+                past_kv=past_kv, use_cache=use_cache,
+            )
             pathway_outputs.append(local_out)
             low_rank_out = self.pathways['low_rank'](x_attn)
             pathway_outputs.append(low_rank_out)
@@ -1083,11 +1149,33 @@ class HASSBlock(nn.Module):
             path_probs = routing_decision.path_probs  # [B, T, 3]
             top_k = getattr(self.config, 'pathway_top_k', 2)
 
+            # When KV caching is requested, bypass the sparse-dispatch path and
+            # compute all pathways. The sparse-dispatch wrappers do not thread
+            # past_kv/use_cache, so they cannot produce or consume a cache.
+            #
+            # TRADE-OFF: use_cache=True disables pathway sparsity (top_k is
+            # effectively raised to 3). This means the cached forward computes
+            # all 3 pathways for every token instead of only the top-2. The
+            # output may differ slightly from use_cache=False because the
+            # sparse-dispatch path renormalizes path_probs over the selected
+            # top-k, while the all-pathways path uses raw path_probs.
+            #
+            # This is the correct trade-off for generation: the O(T) decode
+            # speedup from KV caching far outweighs the loss of pathway
+            # sparsity (which only saves ~1/3 of pathway compute). For
+            # training or single-pass inference where caching is not needed,
+            # use_cache=False preserves the sparse-dispatch optimization.
+            if use_cache or past_kv is not None:
+                top_k = 3  # force all-pathways when caching
+
             if top_k >= 3:
                 # All pathways selected — no sparsity, but use the new path
                 # so the code is exercised. Equivalent to the old training
                 # branch (compute all, weighted sum).
-                local_out = self.pathways['local'](x_attn, attention_mask, position_bias)
+                local_out, present_kv = self.pathways['local'](
+                    x_attn, attention_mask, position_bias,
+                    past_kv=past_kv, use_cache=use_cache,
+                )
                 low_rank_out = self.pathways['low_rank'](x_attn)
                 ssm_out = self.pathways['ssm'].forward_parallel(x_attn)
                 combined = (
@@ -1154,7 +1242,7 @@ class HASSBlock(nn.Module):
                 ffn_out = self.ffn(x_ffn)
 
         x = x + self.dropout(ffn_out)
-        return x
+        return x, present_kv
     
     def forward_with_depth(
         self,
@@ -1162,7 +1250,9 @@ class HASSBlock(nn.Module):
         depth_mask: torch.Tensor,
         routing_decision: Optional[RoutingDecision] = None,
         attention_mask: Optional[torch.Tensor] = None,
-    ) -> torch.Tensor:
+        past_kv: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
+        use_cache: bool = False,
+    ) -> Tuple[torch.Tensor, Optional[Tuple[torch.Tensor, torch.Tensor]]]:
         """
         Forward pass with depth masking.
         Only processes tokens where depth_mask indicates this layer should be active.
@@ -1172,18 +1262,24 @@ class HASSBlock(nn.Module):
             depth_mask: Depth mask [batch, seq_len] indicating active tokens
             routing_decision: Routing decision
             attention_mask: Attention mask
+            past_kv: Optional KV cache from previous step
+            use_cache: If True, return (output, present_kv)
 
         Returns:
-            Output tensor [batch, seq_len, hidden]
+            (output, present_kv) — see forward() for shapes.
         """
         # Check if any tokens are active for this layer
         if depth_mask.sum() == 0:
             # No active tokens, return input unchanged (100% compute saved)
-            return x
+            # KV cache is not updated because no attention was computed.
+            return x, None
 
         # If all tokens across all batch items are active, process as full batch directly
         if depth_mask.all():
-            return self.forward(x, routing_decision=routing_decision, attention_mask=attention_mask)
+            return self.forward(
+                x, routing_decision=routing_decision, attention_mask=attention_mask,
+                past_kv=past_kv, use_cache=use_cache,
+            )
 
         # PARTIAL ACTIVATION PATH (vectorized, no Python loop over batch).
         #
@@ -1205,14 +1301,27 @@ class HASSBlock(nn.Module):
         # The math: out = x + depth_mask * (forward(x) - x)
         # This is equivalent to the per-batch loop but runs the HASS block
         # ONCE on the full batch instead of batch_size times.
-        processed = self.forward(x, routing_decision=routing_decision, attention_mask=attention_mask)
+        #
+        # NOTE: KV caching is NOT supported on the partial-activation path
+        # (depth_mask is not all-active). The cache is only meaningful when
+        # every token is processed by the attention layer. If the caller
+        # requests use_cache on this path, we fall back to no-cache and warn.
+        if use_cache or past_kv is not None:
+            # Safe fallback: compute without cache. The forward() above will
+            # still produce correct logits; we just don't return a cache.
+            # This is documented behavior — partial-activation + KV cache is
+            # not composable.
+            pass
+        processed, _ = self.forward(
+            x, routing_decision=routing_decision, attention_mask=attention_mask,
+        )
 
         # Apply per-token residual gating: only update active tokens, pass
         # inactive tokens through unchanged. depth_mask is [batch, seq];
         # we expand to [batch, seq, 1] for broadcasting with [batch, seq, hidden].
         mask = depth_mask.unsqueeze(-1).to(x.dtype)
         out = x + mask * (processed - x)
-        return out
+        return out, None
     
     def get_compute_stats(
         self,

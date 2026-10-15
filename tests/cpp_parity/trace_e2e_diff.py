@@ -37,7 +37,7 @@ with torch.no_grad():
     x_attn = block.ln1(hidden)
 
     # Run each pathway on FULL x_attn
-    local_out = block.pathways['local'](x_attn, None, None)
+    local_out = block.pathways['local'](x_attn, None, None)[0]  # [0] = output
     low_rank_out = block.pathways['low_rank'](x_attn)
     ssm_out = block.pathways['ssm'].forward_parallel(x_attn)
 

@@ -38,6 +38,9 @@ class ModelOutput:
     # Performance metrics
     active_params: Optional[int] = None  # number of active parameters
     compute_cost: Optional[float] = None  # FLOPs estimate
+
+    # KV cache (for incremental decoding)
+    past_key_values: Optional[list] = None  # list of (k, v) tuples, one per layer
     
     def __init__(self, *args, **kwargs):
         """Initialize ModelOutput.
