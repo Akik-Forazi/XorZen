@@ -1,0 +1,17 @@
+hidden_size=8
+max_width=32
+activation=gelu
+width_used=16
+width_choices=8,32
+tolerance_max_abs=0.0001
+tolerance_max_rel=0.0001
+shape_x=2,16,8
+shape_fc1_weight=32,8
+shape_fc1_bias=32
+shape_fc2_weight=8,32
+shape_fc2_bias=8
+shape_ln_input_weight=8
+shape_ln_input_bias=8
+shape_ln_hidden_weight=32
+shape_ln_hidden_bias=32
+shape_y=2,16,8

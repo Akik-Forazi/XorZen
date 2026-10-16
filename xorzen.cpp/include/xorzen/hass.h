@@ -73,15 +73,58 @@ struct AdaptiveFFNImpl : torch::nn::Module {
 };
 TORCH_MODULE(AdaptiveFFN);
 
+// ─────────────────────────────────────────────────────────────────────
+// SlicedFFN — genuine per-token width slicing (matches Python SlicedFFN)
+// ─────────────────────────────────────────────────────────────────────
+// The weight matrices are allocated at max_width but only the first W_i
+// columns/rows are used for tokens that selected width W_i. This gives
+// genuine per-token compute reduction proportional to W_i / max_width.
+//
+// Key differences from AdaptiveFFN:
+//   - Accepts per-token width_idx [B, T] long tensor (not a scalar multiplier)
+//   - Groups tokens by selected width, processes each group with sliced matmul
+//   - Skips ln_hidden when width < max_width (matches Python sliced_ffn.py:195)
+//
+// Checkpoint compatibility: uses the same fc1/fc2/ln_input/ln_hidden parameter
+// names as AdaptiveFFN, so existing checkpoints load without migration.
+struct SlicedFFNImpl : torch::nn::Module {
+    int64_t hidden_dim;
+    int64_t max_width;
+    std::string activation;
+    std::vector<int64_t> width_choices;
+    torch::nn::Linear fc1{nullptr}, fc2{nullptr};
+    torch::nn::LayerNorm ln_input{nullptr}, ln_hidden{nullptr};
+    torch::nn::Dropout dropout{nullptr}, ffn_dropout{nullptr};
+
+    SlicedFFNImpl(int64_t hidden_dim, int64_t max_width,
+                  std::string activation = "gelu", double dropout = 0.0,
+                  std::vector<int64_t> width_choices = {});
+
+    // forward with per-token width_idx [B, T] (inference)
+    torch::Tensor forward(const torch::Tensor& x, const torch::Tensor& width_idx = {});
+    // forward with a single width for all tokens (fast path)
+    torch::Tensor forward_single_width(const torch::Tensor& x_norm, int64_t width);
+    // forward per-token width via grouping
+    torch::Tensor forward_per_token_width(const torch::Tensor& x_norm, const torch::Tensor& width_idx);
+
+private:
+    torch::Tensor apply_activation(const torch::Tensor& h);
+};
+TORCH_MODULE(SlicedFFN);
+
 struct HASSBlockImpl : torch::nn::Module {
     ModelConfig config;
     int64_t layer_idx;
+    bool use_sliced_ffn;
     LocalAttentionPathway local{nullptr};
     LowRankGlobalPathway low_rank{nullptr};
     SSMPathway ssm{nullptr};
     // NOTE: pathway_gate REMOVED — Python removed it in v0.5 (hass_block.py:897-903).
     // When routing_decision is provided, path_probs are used directly.
-    AdaptiveFFN ffn{nullptr};
+    // ffn is either SlicedFFN (genuine per-token width, matches Python default)
+    // or AdaptiveFFN (scalar width, legacy). Selected by config.use_sliced_ffn.
+    AdaptiveFFN ffn_adaptive{nullptr};  // used when use_sliced_ffn=false
+    SlicedFFN ffn_sliced{nullptr};     // used when use_sliced_ffn=true
     torch::nn::LayerNorm ln1{nullptr}, ln2{nullptr};
     torch::nn::Dropout dropout{nullptr};
 

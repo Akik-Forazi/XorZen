@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <set>
 
 namespace xorzen {
 
@@ -365,9 +366,131 @@ torch::Tensor AdaptiveFFNImpl::forward(const torch::Tensor& x, const torch::Tens
     return dropout->forward(out);
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// SlicedFFN — genuine per-token width slicing (matches Python SlicedFFN)
+// ═══════════════════════════════════════════════════════════════════
+
+SlicedFFNImpl::SlicedFFNImpl(int64_t hidden, int64_t max_w, std::string act,
+                              double dropout_p, std::vector<int64_t> choices)
+    : hidden_dim(hidden), max_width(max_w), activation(std::move(act)) {
+    // Default width choices: 25%, 50%, 75%, 100% of max_width (matches Python)
+    if (choices.empty()) {
+        choices.clear();
+        choices.push_back(std::max<int64_t>(1, max_w / 4));
+        choices.push_back(std::max<int64_t>(1, max_w / 2));
+        choices.push_back(std::max<int64_t>(1, 3 * max_w / 4));
+        choices.push_back(max_w);
+        // Sort and deduplicate
+        std::sort(choices.begin(), choices.end());
+        choices.erase(std::unique(choices.begin(), choices.end()), choices.end());
+    }
+    // Clamp all choices to [1, max_width]
+    for (auto& w : choices) {
+        w = std::max<int64_t>(1, std::min(w, max_w));
+    }
+    width_choices = choices;
+
+    fc1 = register_module("fc1", torch::nn::Linear(hidden_dim, max_width));
+    fc2 = register_module("fc2", torch::nn::Linear(max_width, hidden_dim));
+    ln_input = register_module("ln_input", torch::nn::LayerNorm(torch::nn::LayerNormOptions({hidden_dim})));
+    ln_hidden = register_module("ln_hidden", torch::nn::LayerNorm(torch::nn::LayerNormOptions({max_width})));
+    dropout = register_module("dropout", torch::nn::Dropout(dropout_p));
+    ffn_dropout = register_module("ffn_dropout", torch::nn::Dropout(dropout_p));
+    xavier_linear(fc1, 1.0 / std::sqrt(2.0));
+    xavier_linear(fc2, 1.0 / std::sqrt(2.0));
+}
+
+torch::Tensor SlicedFFNImpl::apply_activation(const torch::Tensor& h) {
+    if (activation == "silu") return torch::silu(h);
+    if (activation == "relu") return torch::relu(h);
+    return torch::gelu(h);  // default: gelu (matches Python SlicedFFN)
+}
+
+torch::Tensor SlicedFFNImpl::forward_single_width(const torch::Tensor& x_norm, int64_t width) {
+    // Matches Python SlicedFFN._forward_single_width (sliced_ffn.py:178)
+    int64_t w = std::max<int64_t>(1, std::min(width, max_width));
+    // fc1: [H, max_width] -> slice to [w, H]
+    auto fc1_w = fc1->weight.slice(0, 0, w);   // [w, H]
+    auto fc1_b = fc1->bias.slice(0, 0, w);     // [w]
+    // fc2: [max_width, H] -> slice to [w, H]  (weight is [H, max_width], slice dim 1)
+    auto fc2_w = fc2->weight.slice(1, 0, w);   // [H, w]
+    auto fc2_b = fc2->bias;                     // [H]
+
+    auto hidden = torch::linear(x_norm, fc1_w, fc1_b);  // [..., w]
+    hidden = apply_activation(hidden);
+    // Skip ln_hidden when w < max_width (Python sliced_ffn.py:195-196)
+    if (w == max_width) {
+        hidden = ln_hidden->forward(hidden);
+    }
+    hidden = ffn_dropout->forward(hidden);
+    auto output = torch::linear(hidden, fc2_w, fc2_b);  // [..., H]
+    return dropout->forward(output);
+}
+
+torch::Tensor SlicedFFNImpl::forward_per_token_width(const torch::Tensor& x_norm,
+                                                      const torch::Tensor& width_idx) {
+    // Matches Python SlicedFFN._forward_per_token_width (sliced_ffn.py:201)
+    // width_idx: [B, T] long tensor in [0, num_widths)
+    auto opts = torch::TensorOptions().dtype(torch::kLong).device(x_norm.device());
+    auto widths_tensor = torch::tensor(width_choices, opts);
+    auto actual_widths = widths_tensor.index_select(0, width_idx.reshape(-1));  // [B*T]
+
+    auto output = torch::zeros_like(x_norm);
+    auto x_flat = x_norm.reshape({-1, hidden_dim});  // [B*T, H]
+
+    // Get unique widths — torch::unique doesn't exist in C++ API, use std::set
+    // Convert actual_widths to CPU and extract unique values
+    auto widths_cpu = actual_widths.cpu().contiguous();
+    auto widths_acc = widths_cpu.accessor<int64_t, 1>();
+    std::set<int64_t> width_set;
+    for (int64_t i = 0; i < widths_acc.size(0); ++i) {
+        width_set.insert(widths_acc[i]);
+    }
+
+    for (int64_t w : width_set) {
+        auto mask = (actual_widths == w);  // [B*T] bool
+        int64_t n_sel = mask.sum().item<int64_t>();
+        if (n_sel == 0) continue;
+        auto idx = mask.nonzero().squeeze(-1);  // [n_sel]
+        auto x_sel = x_flat.index_select(0, idx);  // [n_sel, H]
+        // Process with sliced matmul at width w
+        int64_t ww = std::max<int64_t>(1, std::min(w, max_width));
+        auto fc1_w = fc1->weight.slice(0, 0, ww);
+        auto fc1_b = fc1->bias.slice(0, 0, ww);
+        auto fc2_w = fc2->weight.slice(1, 0, ww);
+        auto fc2_b = fc2->bias;
+        auto hidden = torch::linear(x_sel, fc1_w, fc1_b);
+        hidden = apply_activation(hidden);
+        // Per-token path: NEVER apply ln_hidden (matches Python
+        // _forward_single_width_flat which skips LN for all widths).
+        // This is different from forward_single_width which DOES apply
+        // ln_hidden when w == max_width.
+        hidden = ffn_dropout->forward(hidden);
+        auto y_sel = torch::linear(hidden, fc2_w, fc2_b);  // [n_sel, H]
+        y_sel = dropout->forward(y_sel);
+        // Scatter back
+        output.view({-1, hidden_dim}).index_add_(0, idx, y_sel);
+    }
+    return output;
+}
+
+torch::Tensor SlicedFFNImpl::forward(const torch::Tensor& x, const torch::Tensor& width_idx) {
+    auto xn = ln_input->forward(x);
+    if (!width_idx.defined() || width_idx.numel() == 0) {
+        // No width specified — use max_width (matches Python fallback)
+        return forward_single_width(xn, max_width);
+    }
+    return forward_per_token_width(xn, width_idx);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// HASSBlock
+// ═══════════════════════════════════════════════════════════════════
+
 HASSBlockImpl::HASSBlockImpl(ModelConfig cfg, int64_t idx)
     : config(std::move(cfg)), layer_idx(idx) {
     config.normalize();
+    use_sliced_ffn = config.use_sliced_ffn;
     local = register_module("local", LocalAttentionPathway(config.hidden_size,
         std::max<int64_t>(1, config.num_attention_heads / 2), config.local_window_size, config.dropout, true));
     low_rank = register_module("low_rank", LowRankGlobalPathway(config.hidden_size, config.low_rank_dim, 4, config.dropout));
@@ -375,7 +498,18 @@ HASSBlockImpl::HASSBlockImpl(ModelConfig cfg, int64_t idx)
     // NOTE: pathway_gate REMOVED — Python removed it in v0.5.
     // When routing_decision is provided, path_probs are used directly.
     // When no routing_decision, uniform 1/3 weighting is used.
-    ffn = register_module("ffn", AdaptiveFFN(config.hidden_size, 4.0, config.hidden_act, config.dropout));
+    //
+    // FFN selection: SlicedFFN (genuine per-token width) when use_sliced_ffn=true
+    // (Python default), AdaptiveFFN (scalar width) otherwise. Both use the same
+    // parameter names (fc1, fc2, ln_input, ln_hidden) so checkpoints are compatible.
+    int64_t max_width = config.hidden_size * 4;  // ffn_multiplier = 4.0 (matches Python)
+    if (use_sliced_ffn) {
+        ffn_sliced = register_module("ffn", SlicedFFN(config.hidden_size, max_width,
+                                                       config.hidden_act, config.dropout));
+    } else {
+        ffn_adaptive = register_module("ffn", AdaptiveFFN(config.hidden_size, 4.0,
+                                                           config.hidden_act, config.dropout));
+    }
     ln1 = register_module("ln1", torch::nn::LayerNorm(torch::nn::LayerNormOptions({config.hidden_size})));
     ln2 = register_module("ln2", torch::nn::LayerNorm(torch::nn::LayerNormOptions({config.hidden_size})));
     dropout = register_module("dropout", torch::nn::Dropout(config.dropout));
@@ -480,7 +614,21 @@ torch::Tensor HASSBlockImpl::forward(const torch::Tensor& x,
 
     auto residual = x + dropout->forward(combined);
     auto xf = ln2->forward(residual);
-    auto ffn_out = routing_decision ? ffn->forward(xf, routing_decision->width_multiplier) : ffn->forward(xf);
+    // FFN: SlicedFFN takes per-token width_idx, AdaptiveFFN takes scalar width_multiplier.
+    torch::Tensor ffn_out;
+    if (use_sliced_ffn) {
+        if (routing_decision) {
+            ffn_out = ffn_sliced->forward(xf, routing_decision->width_idx);
+        } else {
+            ffn_out = ffn_sliced->forward(xf);  // defaults to max_width
+        }
+    } else {
+        if (routing_decision) {
+            ffn_out = ffn_adaptive->forward(xf, routing_decision->width_multiplier);
+        } else {
+            ffn_out = ffn_adaptive->forward(xf);
+        }
+    }
     return residual + dropout->forward(ffn_out);
 }
 
