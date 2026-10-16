@@ -440,9 +440,11 @@ class AdaptiveRouter(nn.Module):
                     nn.init.zeros_(layer.bias)
 
     def _eval_gumbel_noise(self, shape: torch.Size, device: torch.device,
-                            dtype: torch.dtype, axis_id: int = 0) -> torch.Tensor:
+                            dtype: torch.dtype, axis_id: int = 0,
+                            position_ids: Optional[torch.Tensor] = None) -> torch.Tensor:
         """
-        Generate deterministic Gumbel(0,1) noise of given shape.
+        Generate deterministic Gumbel(0,1) noise of given shape, indexed by
+        absolute token position.
 
         v0.5 fix for eval routing collapse: pure-softmax eval routing is
         deterministic per-token. When the trained router has any bias toward
@@ -454,25 +456,64 @@ class AdaptiveRouter(nn.Module):
         breaks this collapse while preserving top-k hard sparsity (only K
         pathways/experts are still executed per token).
 
-        The noise is generated from a fixed seed (axis_id) so the same shape
+        v2.0 fix (Sprint 2): noise is now indexed by ABSOLUTE token position,
+        not by position within the current batch. This means:
+          - A token at absolute position 5 gets the same noise whether it's
+            processed as part of a 10-token sequence or as a single
+            incremental token at position 5.
+          - This makes cached (incremental) and uncached (full-sequence)
+            inference produce identical routing decisions.
+
+        The noise is generated from a fixed seed (axis_id) so the same axis
         always produces the same noise pattern. Different axes use different
-        seeds to avoid systematic bias where one axis's noise pattern
-        happens to favor a particular index. This means:
-          - Same input → same routing (reproducible eval)
-          - Different tokens → different noise elements (per-token diversity)
-          - Different axes → different noise patterns (no axis-axis correlation)
+        seeds to avoid systematic bias.
+
+        Args:
+            shape: [B, T, num_options] — the logits shape.
+            device, dtype: target tensor specs.
+            axis_id: per-axis seed offset (0=depth, 1=width, 2=path, 3=expert).
+            position_ids: [B, T] or [T] long tensor of absolute token positions.
+                If None, defaults to 0..T-1 (no offset — backward compatible
+                with full-sequence forward).
 
         Magnitude is `self.eval_routing_noise` (default 0.15). Set to 0.0
         to disable (legacy v0.4 behavior).
         """
         if self.eval_routing_noise <= 0.0:
             return torch.zeros(shape, device=device, dtype=dtype)
+
+        B, T = shape[0], shape[1]
+        num_options = shape[2] if len(shape) > 2 else 1
+
+        # Determine absolute positions for each token in the batch.
+        # If position_ids is None, default to 0..T-1 (full-sequence, no offset).
+        if position_ids is not None:
+            pos = position_ids
+            if pos.dim() == 1:
+                pos = pos.unsqueeze(0).expand(B, -1)
+            # pos is now [B, T] with absolute positions
+        else:
+            pos = torch.arange(T, device='cpu').unsqueeze(0).expand(B, -1)
+
+        # Generate a LARGE noise table (enough for any reasonable position),
+        # then index by absolute position. This ensures position N always
+        # gets the same noise regardless of batch shape.
+        # Max position we'll ever see — use a generous bound.
+        max_pos = int(pos.max().item()) + 1
         # Per-axis fixed seed → reproducible, uncorrelated noise per axis.
         gen = torch.Generator(device='cpu').manual_seed(1337 + axis_id)
-        u = torch.rand(shape, generator=gen, device='cpu').to(device=device, dtype=dtype)
-        # Standard Gumbel(0,1): -log(-log(U))
-        g = -torch.log(-torch.log(u.clamp(min=1e-10)) + 1e-10)
-        return self.eval_routing_noise * g
+        # Generate [max_pos, num_options] noise table.
+        u_table = torch.rand(max_pos, num_options, generator=gen, device='cpu')
+        # Gumbel(0,1): -log(-log(U))
+        g_table = -torch.log(-torch.log(u_table.clamp(min=1e-10)) + 1e-10)
+
+        # Index: for each [b, t], get g_table[pos[b, t], :]
+        # pos is [B, T], result is [B, T, num_options]
+        pos_flat = pos.reshape(-1).long()  # [B*T]
+        noise_flat = g_table[pos_flat]  # [B*T, num_options]
+        noise = noise_flat.reshape(B, T, num_options).to(device=device, dtype=dtype)
+
+        return self.eval_routing_noise * noise
     
     def forward(
         self,
@@ -481,22 +522,29 @@ class AdaptiveRouter(nn.Module):
         training: Optional[bool] = None,
         deterministic: bool = False,
         expert_capacity: Optional[int] = None,
+        position_ids: Optional[torch.Tensor] = None,
     ) -> RoutingDecision:
         """
         Main forward pass.
-        
+
         Args:
             x: Token embeddings
             cot_features: CoT features
             training: Whether in training mode
-            deterministic: Whether to use deterministic routing
+            deterministic: Whether to use deterministic routing (eval mode).
+                If False and not training, defaults to True for reproducibility.
             expert_capacity: Capacity for expert routing
-            
+            position_ids: [B, T] or [T] absolute token positions. Used to
+                generate position-indexed routing noise during eval so that
+                incremental decoding (KV cache) produces the same routing
+                decisions as full-sequence forward. If None, defaults to
+                0..T-1 (no offset).
+
         Returns:
             RoutingDecision with all routing information
         """
         batch_size, seq_len, _ = x.shape
-        
+
         # Use PyTorch's self.training flag as source of truth for determinism
         if training is None:
             training = self.training
@@ -591,22 +639,26 @@ class AdaptiveRouter(nn.Module):
         
         # Depth routing
         depth_probs, depth_mask = self._route_depth(
-            depth_logits, complexity, current_temp, training, deterministic
+            depth_logits, complexity, current_temp, training, deterministic,
+            position_ids=position_ids,
         )
-        
+
         # Width routing
         width_probs, width_idx, width_multiplier = self._route_width(
-            width_logits, complexity, current_temp, training, deterministic
+            width_logits, complexity, current_temp, training, deterministic,
+            position_ids=position_ids,
         )
-        
+
         # Path routing
         path_probs = self._route_path(
-            path_logits, current_temp, training, deterministic
+            path_logits, current_temp, training, deterministic,
+            position_ids=position_ids,
         )
-        
+
         # Expert routing (most complex)
         expert_probs, expert_indices, expert_weights = self._route_experts(
-            expert_logits, current_temp, training, deterministic, expert_capacity
+            expert_logits, current_temp, training, deterministic, expert_capacity,
+            position_ids=position_ids,
         )
         
         # Update expert usage statistics
@@ -665,29 +717,31 @@ class AdaptiveRouter(nn.Module):
         complexity: torch.Tensor,
         temperature: float,
         training: bool,
-        deterministic: bool
+        deterministic: bool,
+        position_ids: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Route depth (which layers to use).
-        
+
         Complexity influences depth: complex tokens use more layers.
         """
         batch_size, seq_len, max_depth = logits.shape
-        
+
         # Adjust logits with complexity
         # Complex tokens get boosted for deeper layers
         depth_bias = torch.linspace(0, 1, max_depth, device=logits.device).unsqueeze(0).unsqueeze(0)
         adjusted_logits = logits + complexity * depth_bias * 2.0
-        
+
         # Apply temperature
         scaled_logits = adjusted_logits / max(temperature, 1e-8)
-        
+
         if deterministic:
             # v0.5: Add small Gumbel noise to break per-token collapse.
             # axis_id=0 for depth.
             noise = self._eval_gumbel_noise(
                 scaled_logits.shape, scaled_logits.device, scaled_logits.dtype,
                 axis_id=0,
+                position_ids=position_ids,
             )
             probs = torch.sigmoid(scaled_logits + noise)
             mask = (probs > 0.5).float()
@@ -730,27 +784,29 @@ class AdaptiveRouter(nn.Module):
         complexity: torch.Tensor,
         temperature: float,
         training: bool,
-        deterministic: bool
+        deterministic: bool,
+        position_ids: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Route width (how much compute per layer).
-        
+
         Complexity influences width: complex tokens get more compute.
         """
         # Adjust logits with complexity
         # Complex tokens pushed toward higher widths
         width_bias = torch.linspace(-1, 1, self.num_widths, device=logits.device).unsqueeze(0).unsqueeze(0)
         adjusted_logits = logits + complexity * width_bias * 3.0
-        
+
         # Apply temperature
         scaled_logits = adjusted_logits / max(temperature, 1e-8)
-        
+
         if deterministic:
             # v0.5: Add small Gumbel noise to break per-token collapse.
             # axis_id=1 for width.
             noise = self._eval_gumbel_noise(
                 scaled_logits.shape, scaled_logits.device, scaled_logits.dtype,
                 axis_id=1,
+                position_ids=position_ids,
             )
             probs = F.softmax(scaled_logits + noise, dim=-1)
             width_idx = torch.argmax(probs, dim=-1)
@@ -781,7 +837,8 @@ class AdaptiveRouter(nn.Module):
         logits: torch.Tensor,
         temperature: float,
         training: bool,
-        deterministic: bool
+        deterministic: bool,
+        position_ids: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
         Route HASS pathways (Local, Low-rank, SSM).
@@ -805,6 +862,7 @@ class AdaptiveRouter(nn.Module):
             noise = self._eval_gumbel_noise(
                 scaled_logits.shape, scaled_logits.device, scaled_logits.dtype,
                 axis_id=2,
+                position_ids=position_ids,
             )
             probs = F.softmax(scaled_logits + noise, dim=-1)
         else:
@@ -835,33 +893,38 @@ class AdaptiveRouter(nn.Module):
         temperature: float,
         training: bool,
         deterministic: bool,
-        expert_capacity: Optional[int] = None
+        expert_capacity: Optional[int] = None,
+        position_ids: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Route to MoE experts.
-        
+
         Implements capacity-aware routing to prevent overload.
         """
         batch_size, seq_len, num_experts = logits.shape
         num_tokens = batch_size * seq_len
-        
+
         # Default capacity: tokens per expert
         if expert_capacity is None:
             expert_capacity = max(1, int(num_tokens * 1.25 / num_experts))
-        
+
         # Reshape for routing
         logits_flat = logits.view(-1, num_experts)  # [num_tokens, num_experts]
-        
+
         if deterministic:
             # v0.5: Add small Gumbel noise to break per-token collapse.
             # axis_id=3 for expert.
+            # Note: logits_flat is [B*T, num_experts] (2D), but _eval_gumbel_noise
+            # expects [B, T, num_options] (3D). Pass the original 3D shape.
             noise = self._eval_gumbel_noise(
-                logits_flat.shape, logits_flat.device, logits_flat.dtype,
+                logits.shape, logits.device, logits.dtype,
                 axis_id=3,
+                position_ids=position_ids,
             )
+            noise_flat = noise.view(-1, num_experts)  # flatten to match logits_flat
             # Top-k routing for inference
             top_k_weights, top_k_indices = torch.topk(
-                F.softmax(logits_flat + noise, dim=-1),
+                F.softmax(logits_flat + noise_flat, dim=-1),
                 self.top_k,
                 dim=-1
             )

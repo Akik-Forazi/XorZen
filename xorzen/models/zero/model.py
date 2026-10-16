@@ -475,11 +475,15 @@ class zeroModel(BaseModel):
             )  # [B, T, cot_dim] — zeros, no gradient
         
         # ========== STEP 3: ADAPTIVE ROUTING ==========
-        # Router makes ALL decisions for the forward pass
+        # Router makes ALL decisions for the forward pass.
+        # Pass position_ids so the router generates position-indexed noise
+        # during eval — this ensures incremental decode (KV cache) produces
+        # the same routing decisions as full-sequence forward.
         routing_decision = self.router(
             x=hidden_states,
             cot_features=cot_vector_seq,
             training=self.training,
+            position_ids=position_ids,
         )
         
         # Extract routing decisions
