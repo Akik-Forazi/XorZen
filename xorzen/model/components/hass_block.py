@@ -1495,7 +1495,7 @@ class HASSBlockManager:
                 continue
             
             # Forward through block with depth masking
-            current = block.forward_with_depth(
+            current, _ = block.forward_with_depth(
                 current, depth_mask, routing_decision, attention_mask
             )
             

@@ -60,11 +60,11 @@ def test_batch_boundary_isolation():
     
     # Batch 1: [A1, B]
     x_batch1 = torch.cat([x_sample_a1, x_sample_b], dim=0)
-    out1 = block.forward_with_depth(x_batch1, depth_mask)
+    out1, _ = block.forward_with_depth(x_batch1, depth_mask)
     
     # Batch 2: [A2, B]
     x_batch2 = torch.cat([x_sample_a2, x_sample_b], dim=0)
-    out2 = block.forward_with_depth(x_batch2, depth_mask)
+    out2, _ = block.forward_with_depth(x_batch2, depth_mask)
     
     diff_b = (out1[1] - out2[1]).abs().max().item()
     assert diff_b == 0.0, f"Sample B output leaked from Sample A (diff: {diff_b})!"
