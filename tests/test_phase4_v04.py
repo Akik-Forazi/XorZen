@@ -459,7 +459,7 @@ def test_model_level_width_sparsity():
         model = zeroBase(config=cfg, test_mode=True)
         model.eval()
         # Force width
-        def force_width(logits, complexity, temperature, training, deterministic, **kwargs):
+        def force_width(logits, complexity, temperature, training, deterministic):
             B, T, W = logits.shape
             probs = torch.zeros(B, T, W, device=logits.device)
             probs[..., width_idx_val] = 1.0

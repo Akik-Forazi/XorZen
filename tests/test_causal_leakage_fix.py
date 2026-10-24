@@ -224,11 +224,11 @@ class TestHassBlockCausality:
         block.eval()
         x = torch.randn(1, 16, cfg.hidden_size)
         with torch.no_grad():
-            out1, _ = block(x, compute_all_pathways=True)
+            out1 = block(x, compute_all_pathways=True)
         x2 = x.clone()
         x2[:, 12:, :] += 100.0
         with torch.no_grad():
-            out2, _ = block(x2, compute_all_pathways=True)
+            out2 = block(x2, compute_all_pathways=True)
         early_diff = (out1[:, :12, :] - out2[:, :12, :]).abs().max().item()
         assert early_diff < 1e-5, f"HASS block causal leak: diff={early_diff}"
 
@@ -240,7 +240,7 @@ class TestHassBlockCausality:
         block = HASSBlock(cfg, layer_idx=0)
         block.train()
         x = torch.randn(1, 8, cfg.hidden_size, requires_grad=True)
-        out, _ = block(x, compute_all_pathways=True)
+        out = block(x, compute_all_pathways=True)
         out.sum().backward()
         assert x.grad is not None, "HASS block: input has no gradient"
         assert x.grad.abs().max().item() > 1e-8, "HASS block: input gradient zero"

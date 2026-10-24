@@ -122,7 +122,7 @@ class GreedModel(zeroModel):
             if not self.training and not layer_mask.any():
                 continue
 
-            block_out, _ = block(
+            block_out = block(
                 x=hidden_states,
                 routing_decision=routing_decision,
                 attention_mask=attention_mask,
