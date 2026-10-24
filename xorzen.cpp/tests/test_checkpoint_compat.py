@@ -44,7 +44,7 @@ def tensor_to_list(t):
     return t.detach().cpu().numpy().tolist()
 
 
-def test_checkpoint_compat(model_name: str, output_dir: str, seed: int = 42):
+def run_checkpoint_compat(model_name: str, output_dir: str, seed: int = 42):
     """Generate checkpoint + reference data for C++ compatibility testing."""
     factory, size = MODEL_FACTORIES[model_name]
     out_dir = Path(output_dir)
@@ -184,7 +184,11 @@ def main():
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
-    test_checkpoint_compat(args.model, args.output, args.seed)
+    run_checkpoint_compat(args.model, args.output, args.seed)
+
+
+def test_checkpoint_compat():
+    run_checkpoint_compat("zero_tiny_23k", "checkpoint_test")
 
 
 if __name__ == "__main__":

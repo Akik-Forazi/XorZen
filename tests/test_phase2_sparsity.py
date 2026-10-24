@@ -154,7 +154,7 @@ def test_pathway_ste_training_gradient_flows():
         auxiliary={},
     )
     x = torch.randn(B, T, H)
-    y = block(x, routing_decision=rd)
+    y, _ = block(x, routing_decision=rd)
     y.sum().backward()
     # Gradient must flow through path_logits
     assert path_logits.grad is not None
@@ -307,7 +307,7 @@ def test_adaptive_depth_gathers_and_scatters():
 
     # Forward with depth: should only process the active tokens
     with torch.no_grad():
-        y = block.forward_with_depth(x, depth_mask[:, :, 0], routing_decision=None)
+        y, _ = block.forward_with_depth(x, depth_mask[:, :, 0], routing_decision=None)
 
     # The active tokens should have been processed (different from input)
     active_diff = (y[:, :4, :] - x[:, :4, :]).abs().mean()

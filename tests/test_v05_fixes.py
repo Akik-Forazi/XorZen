@@ -252,7 +252,7 @@ def test_pathway_gate_removal_doesnt_break_standalone():
     B, T, H = 2, 8, cfg.hidden_size
     x = torch.randn(B, T, H)
     with torch.no_grad():
-        y = block(x, routing_decision=None)  # standalone use
+        y, _ = block(x, routing_decision=None)  # standalone use
     assert torch.isfinite(y).all(), "NaN/Inf in standalone HASSBlock output"
     assert y.shape == x.shape, f"shape mismatch: {y.shape} vs {x.shape}"
 
@@ -299,7 +299,7 @@ def test_pathway_gate_removal_gradient_flow():
         uncertainty=torch.zeros(B, T, 1),
         auxiliary={},
     )
-    y = block(x, routing_decision=rd)
+    y, _ = block(x, routing_decision=rd)
     y.sum().backward()
     assert x.grad is not None, "no gradient on input"
     assert x.grad.abs().sum() > 0, "zero gradient on input"

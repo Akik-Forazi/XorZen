@@ -24,7 +24,7 @@ import xorzen
 from xorzen.config import ConfigFactory, ModelSize
 
 PROC = psutil.Process()
-LOG = Path("/home/z/my-project/workspace/bench_data/smoke_results.json")
+LOG = Path(__file__).resolve().parent.parent.parent / "bench_data" / "smoke_results.json"
 LOG.parent.mkdir(parents=True, exist_ok=True)
 
 
