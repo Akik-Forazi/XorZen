@@ -1,0 +1,370 @@
+{
+  "environment": {
+    "python": "3.12.16 (main, Oct 26 2026, 14:08:45) [Clang 23.1.3 ]",
+    "torch": "2.14.1+cpu",
+    "cuda_available": false,
+    "cpu_count": 2,
+    "commit": "635f41ec4299f1bdaa00f28ee2315cb8d468f9b1",
+    "branch": "research/training-qualification"
+  },
+  "results": {
+    "A/forward_shape": {
+      "status": "PASS",
+      "detail": "logits shape=[2, 16, 50], expected=[2, 16, 50]",
+      "logits_shape": [
+        2,
+        16,
+        50
+      ]
+    },
+    "A/batch_size_1": {
+      "status": "PASS",
+      "detail": "batch=1 logits=[1, 16, 50]"
+    },
+    "A/seq_len_1": {
+      "status": "PASS",
+      "detail": "seq=1 logits=[2, 1, 50]"
+    },
+    "A/max_context": {
+      "status": "PASS",
+      "detail": "max_ctx logits=[1, 32, 50]"
+    },
+    "A/over_context": {
+      "status": "PASS",
+      "detail": "correctly rejected over-context input"
+    },
+    "A/finite_outputs": {
+      "status": "PASS",
+      "detail": "all finite=True, min=-0.3931, max=0.5741"
+    },
+    "A/causal_mask": {
+      "status": "PASS",
+      "detail": "max diff at positions 0-9 when changing 10-15: 0.00e+00"
+    },
+    "A/no_cross_batch": {
+      "status": "PASS",
+      "detail": "max diff batch vs individual: 0.00e+00"
+    },
+    "A/train_eval_parity": {
+      "status": "WARN",
+      "detail": "train vs eval diff: 1.45e-01 (dropout=0, should be ~0)"
+    },
+    "A/invalid_vocab_id": {
+      "status": "PASS",
+      "detail": "correctly rejected: IndexError"
+    },
+    "A/loss_computation": {
+      "status": "PASS",
+      "detail": "loss=3.9406, lm_loss=3.9406, finite=True"
+    },
+    "A/param_count": {
+      "status": "INFO",
+      "detail": "total=158,967 trainable=144,398 frozen=14,569"
+    },
+    "B/forward_backward": {
+      "status": "PASS",
+      "detail": "loss=3.6640 finite=True"
+    },
+    "B/gradient_coverage": {
+      "status": "FAIL",
+      "detail": "has_grad=151 no_grad=7 zero_grad=1 non_finite=0"
+    },
+    "B/router_width_router_grad": {
+      "status": "PASS",
+      "detail": "grad norms: ['4.6585e-02', '1.7443e-02', '1.2383e-03', '1.1157e-03', '3.6728e-02', '1.3976e-02']"
+    },
+    "B/router_depth_router_grad": {
+      "status": "PASS",
+      "detail": "grad norms: ['4.2995e-03', '1.0853e-03', '7.1154e-05', '7.7785e-05', '3.4972e-03', '1.2131e-03']"
+    },
+    "B/router_path_router_grad": {
+      "status": "PASS",
+      "detail": "grad norms: ['5.9672e-03', '1.2578e-03', '1.0637e-04', '8.3556e-05', '5.2028e-03', '8.8078e-04']"
+    },
+    "B/router_expert_router_grad": {
+      "status": "PASS",
+      "detail": "grad norms: ['1.7043e-04', '6.4939e-05', '4.3904e-06', '5.4070e-06', '3.1344e-04', '1.0104e-04']"
+    },
+    "B/frozen_params": {
+      "status": "PASS",
+      "detail": "CoT frozen params unchanged after step: True"
+    },
+    "B/param_update": {
+      "status": "PASS",
+      "detail": "changed=152 unchanged=7 (out of 159 trainable)"
+    },
+    "B/gradient_clipping": {
+      "status": "PASS",
+      "detail": "grad_norm before clip: 2.2582 (clip=1.0)"
+    },
+    "B/repeated_steps": {
+      "status": "PASS",
+      "detail": "10 steps: loss[0]=3.6572 loss[-1]=3.0096 delta=-0.6475 all_finite=True",
+      "losses": [
+        3.657153844833374,
+        3.4815969467163086,
+        3.3702340126037598,
+        3.2935659885406494,
+        3.231539249420166,
+        3.171266794204712,
+        3.125058889389038,
+        3.0864782333374023,
+        3.0594286918640137,
+        3.0096359252929688
+      ]
+    },
+    "C/loss_shift_correctness": {
+      "status": "PASS",
+      "detail": "model lm_loss=3.953598 manual CE=3.953598 diff=0.00e+00"
+    },
+    "C/loss_components": {
+      "status": "INFO",
+      "detail": "lm_loss=3.9536 routing_loss=0.0001 total_loss=3.9536 lb_loss=0.0000"
+    },
+    "C/pad_token_handling": {
+      "status": "PASS",
+      "detail": "loss with padding=4.0327 finite=True"
+    },
+    "C/training_stability_20steps": {
+      "status": "PASS",
+      "detail": "loss: 3.7198\u21922.7426 (\u0394=-0.9771) grad_norm: 2.1478\u21921.4208 non_finite_grads: 0",
+      "history": {
+        "step": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "loss": [
+          3.7197561264038086,
+          3.5456535816192627,
+          3.446538209915161,
+          3.3543829917907715,
+          3.2856874465942383,
+          3.2329084873199463,
+          3.182695150375366,
+          3.1406538486480713,
+          3.100860834121704,
+          3.074549913406372,
+          3.0269217491149902,
+          2.994076728820801,
+          2.961275339126587,
+          2.9280502796173096,
+          2.901324510574341,
+          2.8635005950927734,
+          2.8448972702026367,
+          2.7980539798736572,
+          2.767181396484375,
+          2.7426397800445557
+        ],
+        "grad_norm": [
+          2.147833824157715,
+          1.6358463764190674,
+          1.4752651453018188,
+          1.497073769569397,
+          1.3825331926345825,
+          1.404958963394165,
+          1.3386417627334595,
+          1.3579193353652954,
+          1.3159030675888062,
+          1.3629447221755981,
+          1.3263243436813354,
+          1.3669883012771606,
+          1.4387359619140625,
+          1.3667384386062622,
+          1.301998496055603,
+          1.4385535717010498,
+          1.368059515953064,
+          1.3514378070831299,
+          1.3208779096603394,
+          1.4208414554595947
+        ],
+        "param_norm": [
+          36.28591775110373,
+          36.2899717174843,
+          36.29639776987367,
+          36.30428536356523,
+          36.31347815333519,
+          36.323162645471704,
+          36.333282975060804,
+          36.34384857876841,
+          36.35490046037545,
+          36.36590991131653,
+          36.376934154346884,
+          36.38784875914166,
+          36.39865939174113,
+          36.40936141566186,
+          36.42011817630224,
+          36.43101778808271,
+          36.44184145775059,
+          36.45285602727978,
+          36.4641020628489,
+          36.47541869591931
+        ],
+        "non_finite": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    "D/tiny_overfit": {
+      "status": "FAIL",
+      "detail": "50 steps: loss 3.7509\u21921.1878 (drop=2.5631) val_loss=1.5614",
+      "train_losses": [
+        3.7509236335754395,
+        3.4530482292175293,
+        3.3086018562316895,
+        3.21313738822937,
+        3.1372859477996826,
+        3.0763444900512695,
+        3.0279178619384766,
+        2.9751720428466797,
+        2.930711507797241,
+        2.8837809562683105,
+        2.8361434936523438,
+        2.7905426025390625,
+        2.7492892742156982,
+        2.7068381309509277,
+        2.660961627960205,
+        2.6179964542388916,
+        2.5734806060791016,
+        2.530193567276001,
+        2.485910415649414,
+        2.4435627460479736,
+        2.400040626525879,
+        2.352405071258545,
+        2.3128182888031006,
+        2.268955945968628,
+        2.2230749130249023,
+        2.1778206825256348,
+        2.135072946548462,
+        2.0918972492218018,
+        2.047272205352783,
+        2.0042405128479004,
+        1.9598056077957153,
+        1.9152684211730957,
+        1.8732969760894775,
+        1.8302276134490967,
+        1.785992980003357,
+        1.747231125831604,
+        1.7024621963500977,
+        1.658727765083313,
+        1.6201978921890259,
+        1.5765273571014404,
+        1.536922574043274,
+        1.4942858219146729,
+        1.4567517042160034,
+        1.4170682430267334,
+        1.3782683610916138,
+        1.3387480974197388,
+        1.3000766038894653,
+        1.2623987197875977,
+        1.2251452207565308,
+        1.1877965927124023
+      ],
+      "val_losses": [
+        3.690145492553711,
+        3.273134469985962,
+        3.043548107147217,
+        2.8281431198120117,
+        2.6141626834869385,
+        2.396637201309204,
+        2.178689479827881,
+        1.9647690057754517,
+        1.757954716682434,
+        1.5613983869552612
+      ]
+    },
+    "D/pattern_prediction": {
+      "status": "PASS",
+      "detail": "next-token accuracy on pattern: 15/15 = 100.0%"
+    },
+    "E/save_state_dict": {
+      "status": "PASS",
+      "detail": "saved 204 tensors"
+    },
+    "E/restore_logits": {
+      "status": "PASS",
+      "detail": "max logit diff after restore: 0.00e+00"
+    },
+    "E/param_match": {
+      "status": "PASS",
+      "detail": "all params match: True, max diff: 0.00e+00"
+    },
+    "E/save_to_file": {
+      "status": "PASS",
+      "detail": "checkpoint size: 755,511 bytes"
+    },
+    "E/load_from_file": {
+      "status": "PASS",
+      "detail": "max logit diff after file round-trip: 0.00e+00"
+    },
+    "E/deterministic_eval": {
+      "status": "PASS",
+      "detail": "eval determinism diff: 0.00e+00"
+    },
+    "F/train_eval_logits": {
+      "status": "WARN",
+      "detail": "train vs eval logits diff: 2.87e-01 (dropout=0)"
+    },
+    "F/cached_vs_full": {
+      "status": "FAIL",
+      "detail": "exception: Sizes of tensors must match except in dimension 2. Expected size 2 but got size 1 for tensor number 1 in the list."
+    },
+    "F/router_eval_decisions": {
+      "status": "INFO",
+      "detail": "path_probs[0,0]=[0.2991565465927124, 0.39599162340164185, 0.30485183000564575] width_idx[0,:4]=[0, 0, 0, 0] depth_mask[0,0]=[1.0, 1.0]"
+    },
+    "G/greedy_generation": {
+      "status": "PASS",
+      "detail": "prompt=4 tokens + 8 generated = 12 tokens"
+    },
+    "G/valid_token_ids": {
+      "status": "PASS",
+      "detail": "all IDs in [0, 50): True"
+    },
+    "G/deterministic_generation": {
+      "status": "PASS",
+      "detail": "two runs identical: True"
+    },
+    "G/different_prompts_different_output": {
+      "status": "PASS",
+      "detail": "different prompts \u2192 different outputs: True"
+    }
+  },
+  "bugs": []
+}
