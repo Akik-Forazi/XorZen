@@ -148,25 +148,46 @@ class SlicedFFN(nn.Module):
             return self._forward_single_width(x_norm, width)
 
         if self.training and width_probs is not None:
-            # Training: STE. Hard argmax in forward, soft probs in backward.
-            # We compute the output at the hard argmax width, and add a
-            # zero-valued soft-mix term that carries gradient to width_probs.
-            hard_idx = width_probs.argmax(dim=-1)  # [B, T]
-            # Compute output at the hard width
-            y_hard = self._forward_per_token_width(x_norm, hard_idx)
-            # STE: y = y_hard.detach() + (width_probs * expected_width_value).sum() - (width_probs * expected_width_value).sum().detach()
-            # The simplest STE: just return y_hard (the hard path) but keep
-            # width_probs in the graph by adding a zero-multiply term.
-            # This way the gradient on width_probs is zero (because the hard
-            # path doesn't depend on it), but we can add an auxiliary loss
-            # in the model that DOES depend on width_probs (e.g. width entropy
-            # or budget loss).
+            # Training: Straight-Through Estimator (STE).
             #
-            # For a true STE we'd need to compute the soft mixture too, but
-            # that defeats the sparsity purpose. The recommended training
-            # strategy is: use width_probs for the auxiliary budget/entropy
-            # losses, and use the hard width for the actual forward.
-            return y_hard
+            # Forward: use the hard argmax width per token (genuine sparsity).
+            # Backward: gradient flows through a soft mixture of all width
+            # outputs, weighted by width_probs.
+            #
+            # Mathematical formulation:
+            #   y_hard = FFN(x, width=argmax(width_probs))   # hard forward
+            #   y_soft = sum_i(width_probs_i * FFN(x, width=i))  # soft mixture
+            #   y_ste = y_hard + (y_soft - y_soft.detach())
+            #
+            # In the forward pass: y_ste = y_hard (the detach cancels out).
+            # In the backward pass: dL/d(width_probs) flows through y_soft.
+            #
+            # Cost: O(num_widths) forward passes. For typical configs (1-2
+            # widths) this is negligible. For configs with many widths, the
+            # cost is proportional to num_widths but each pass is on a subset
+            # of tokens, so total FLOPs is ~2x the hard-only path.
+            hard_idx = width_probs.argmax(dim=-1)  # [B, T]
+            y_hard = self._forward_per_token_width(x_norm, hard_idx)
+
+            # Compute soft mixture for gradient surrogate.
+            # y_soft = sum_i(width_probs_i * y_i) where y_i is the output at width i.
+            # We compute each width's output on the full batch (no grouping needed
+            # for the soft path — it's a weighted sum).
+            #
+            # IMPORTANT: width_probs has shape [B, T, num_router_widths] where
+            # num_router_widths = len(config.width_choices). The SlicedFFN's
+            # self.width_choices may include max_width (added automatically),
+            # so we only iterate over the first num_router_widths choices.
+            num_router_widths = width_probs.shape[-1]
+            y_soft = torch.zeros_like(y_hard)
+            for i in range(num_router_widths):
+                w = self.width_choices[i]
+                y_i = self._forward_single_width(x_norm, w)
+                y_soft = y_soft + width_probs[..., i:i + 1] * y_i
+
+            # STE: forward = y_hard, backward = gradient through y_soft
+            y_ste = y_hard + (y_soft - y_soft.detach())
+            return y_ste
 
         if width_idx is not None:
             # Inference: per-token hard width
