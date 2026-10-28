@@ -46,6 +46,8 @@
 
 **XorZen** is a hybrid deep learning framework that fuses Transformer attention, Mixture-of-Experts (MoE), and State-Space Models (SSM) into a single architecture with **genuine per-token conditional compute**. Rather than computing everything and masking outputs, XorZen dynamically routes each token through a selectively activated subset of layers, widths, pathways, and experts — saving FLOPs while maintaining (or improving) quality.
 
+**Key design decision:** XORZEN uses **SSM fixed-size context**, not KV cache. The SSM pathway maintains a fixed-size recurrent state (`state_dim`, default 16) that carries information across the sequence with O(1) memory — no growing KV cache, no linear context cost. This enables bounded-memory inference regardless of sequence length.
+
 The framework is the foundation for the broader **FRAZIYM AI Ecosystem**, which includes context compression models (Greed), agentic inference models (Jima), a data processing pipeline (xorvec-data), and a C++ deployment library (libcompact).
 
 **Current version:** v1.0.1
@@ -559,7 +561,7 @@ See `FRAZIYM_REBUILD_ROADMAP_2MONTHS.md` for the detailed 8-week rebuild plan.
 
 3. **Depth routing is training-only**: During training, all layers are computed with STE mask blending (no FLOP savings — dense compute). Genuine depth skipping only occurs at inference via gather-scatter.
 
-4. **SSM state not cached**: The SSM pathway is recurrent but its state `h` is not cached during incremental decoding. This causes ~0.08 logit diff between cached and uncached inference. Only the local attention KV is cached.
+4. **SSM state not carried across forward calls**: The SSM pathway uses a fixed-size recurrent state (`state_dim`=16) that IS the context mechanism — no KV cache is used. However, the state is not currently returned from `forward()` or carried across calls. For incremental generation, the SSM state should be passed as `init_state` to the scan. This is the intended context mechanism, not a bug — it needs implementation.
 
 5. **SlicedFFN `ln_hidden` dead code**: `ln_hidden` is only applied when `w == max_width` (hidden×4), but `width_choices` never include `max_width` (max is `hidden_size`). So `ln_hidden` parameters are allocated and trainable but never receive gradients. [BUG-G002, medium]
 
@@ -569,9 +571,9 @@ See `FRAZIYM_REBUILD_ROADMAP_2MONTHS.md` for the detailed 8-week rebuild plan.
 
 8. **Loss small discrepancy**: `lm_loss` differs from manual cross-entropy by ~4.5e-4 (was 0.00 before merge `635f41e`). Likely FP accumulation in auxiliary loss terms. [BUG-L001, medium]
 
-9. **`use_cache=True` disables pathway sparsity**: When KV caching is enabled, `HASSBlock.forward` forces `top_k=3` (all pathways) because sparse-dispatch wrappers cannot thread KV cache. This trades pathway sparsity for O(T) decode.
+9. **`use_cache=True` is not the intended path**: XORZEN's context mechanism is the SSM recurrent state, not attention KV cache. The `use_cache` / `past_key_values` API was added experimentally but should be replaced with SSM state passing (`init_state` in `sequential_scan`). The current KV cache implementation forces `top_k=3` (disabling pathway sparsity) and is architecturally inconsistent with the SSM-first design.
 
-10. **C++ KV cache not wired**: The C++ `DiskShardedKVCache` (540 lines) is fully implemented but has 0 callers. C++ generation is O(T²). Python side has working KV cache.
+10. **No KV cache (by design)**: XORZEN uses SSM fixed-size context, not KV cache. The Python `use_cache` / `past_key_values` API that was added is NOT the intended inference path — it should be replaced with SSM state passing. The C++ `DiskShardedKVCache` (540 lines) is dead code that should be removed or replaced with SSM state management. Generation currently recomputes the full prefix (O(T²)) — the fix is to carry the SSM state, not cache attention K/V.
 
 11. **Native kernels not wired**: `xorzen/speed/csrc/` has 8 C++ files (~1156 lines) of AVX2 kernels that JIT-compile but are never called from any forward path. `auto_patch_model` always returns `False`.
 
