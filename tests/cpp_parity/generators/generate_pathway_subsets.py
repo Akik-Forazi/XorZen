@@ -95,7 +95,7 @@ with torch.no_grad():
 
         # Run Python pathway forward on the subset
         if name == 'local':
-            y3d = block.pathways['local'](x3d, None, None)[0]  # [0] = output
+            y3d = block.pathways['local'](x3d, None, None)
         elif name == 'low_rank':
             y3d = block.pathways['low_rank'](x3d)
         elif name == 'ssm':

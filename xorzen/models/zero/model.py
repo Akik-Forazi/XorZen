@@ -350,8 +350,6 @@ class zeroModel(BaseModel):
         output_routing_info: bool = False,
         output_cot_vector: bool = True,
         return_dict: bool = True,
-        use_cache: bool = False,
-        past_key_values: Optional[List[Optional[Tuple[torch.Tensor, torch.Tensor]]]] = None,
     ) -> Union[ModelOutput, Tuple]:
         """
         Defines the forward pass logic for the `zeroModel`.
@@ -390,18 +388,7 @@ class zeroModel(BaseModel):
                                                      vector is returned. Defaults to `True`.
             return_dict (`bool`, *optional*): If `True`, a `ModelOutput` object is returned.
                                                Otherwise, a tuple is returned. Defaults to `True`.
-            use_cache (`bool`, *optional*): If `True`, enables KV caching for faster sequential
-                                             decoding during generation. Defaults to `False`.
-                                             When enabled, only the local attention pathway's
-                                             K/V are cached (low-rank and SSM pathways use
-                                             their own internal state and are not cached).
-            past_key_values (`list`, *optional*): List of length n_layers, each element is
-                                                  either None or a (k, v) tuple of shape
-                                                  [batch, num_heads, past_len, head_dim].
-                                                  Used for incremental decoding. When provided,
-                                                  the model attends to past_len cached tokens
-                                                  plus the new tokens in input_ids.
-        
+
         Returns:
             `Union[ModelOutput, Tuple]`: A `ModelOutput` object or a tuple, depending on `return_dict`.
                                          The output contains:
@@ -433,15 +420,9 @@ class zeroModel(BaseModel):
         hidden_states = self.token_embedding(input_ids)  # [B, T, H]
         
         # Position embeddings
-        # When past_key_values is provided, position_ids must account for the
-        # cached tokens (offset by past_len).
         if position_ids is None:
-            past_len = 0
-            if past_key_values is not None and past_key_values[0] is not None:
-                past_len = past_key_values[0][0].size(2)  # k shape: [B, H, past_len, D]
             position_ids = torch.arange(
-                past_len,
-                past_len + seq_length,
+                seq_length,
                 dtype=torch.long,
                 device=device
             ).unsqueeze(0).expand(batch_size, -1)
@@ -496,23 +477,10 @@ class zeroModel(BaseModel):
         # ========== STEP 4: HASS BLOCKS ==========
         # Process through transformer blocks with adaptive depth
         layer_outputs = [] if output_hidden_states else None
-        # Initialize per-layer KV cache list for this forward pass.
-        # When use_cache=True, each block returns (output, present_kv) and we
-        # collect present_kv into present_key_values for the caller.
-        present_key_values: List[Optional[Tuple[torch.Tensor, torch.Tensor]]] = []
-
-        # Normalize past_key_values: if None, treat as all-None per layer.
-        if past_key_values is None:
-            past_key_values = [None] * len(self.blocks)
-        elif len(past_key_values) < len(self.blocks):
-            # Pad with None if the caller provided a shorter list.
-            past_key_values = list(past_key_values) + [None] * (len(self.blocks) - len(past_key_values))
-
         for layer_idx, block in enumerate(self.blocks):
             # depth_mask[:, :, layer_idx] is the soft STE mask [B, T] with values in (0,1)
             # during training (gradient flows through it) and hard 0/1 at inference.
             layer_mask = depth_mask[:, :, layer_idx]  # [B, T]  — soft during training
-            layer_past_kv = past_key_values[layer_idx]
 
             # GENUINE SPARSE DEPTH (inference): if some tokens have mask=0,
             # gather only the active tokens, run the block on them, and scatter
@@ -535,7 +503,6 @@ class zeroModel(BaseModel):
                 n_active = int(active.sum().item())
                 if n_active == 0:
                     # No tokens active — skip block entirely. Cache unchanged.
-                    present_key_values.append(layer_past_kv if use_cache else None)
                     if output_hidden_states:
                         layer_outputs.append(hidden_states)
                     continue
@@ -548,7 +515,6 @@ class zeroModel(BaseModel):
                         routing_decision=routing_decision,
                         attention_mask=attention_mask,
                     )
-                    present_key_values.append(None)  # partial-activation: no cache
                     if output_hidden_states:
                         layer_outputs.append(hidden_states)
                     continue
@@ -560,7 +526,7 @@ class zeroModel(BaseModel):
                 # KV cache is not used during training (no incremental decode).
                 def create_forward_func(block_module, routing_decision_obj, attention_mask_obj):
                     def forward_func(h_states):
-                        block_out, _ = block_module(
+                        block_out = block_module(
                             x=h_states,
                             routing_decision=routing_decision_obj,
                             attention_mask=attention_mask_obj
@@ -573,16 +539,12 @@ class zeroModel(BaseModel):
                     hidden_states,
                     use_reentrant=False
                 )
-                present_key_values.append(None)  # no cache during gradient checkpointing
             else:
-                block_out, layer_present_kv = block(
+                block_out = block(
                     x=hidden_states,
                     routing_decision=routing_decision,
                     attention_mask=attention_mask,
-                    past_kv=layer_past_kv,
-                    use_cache=use_cache,
                 )
-                present_key_values.append(layer_present_kv)
 
             # Training: use STE mask blend (gradient flows through mask).
             # block_out is the FULL block output (already has its own internal residual),
@@ -735,7 +697,6 @@ class zeroModel(BaseModel):
             cot_consistency_loss=cot_consistency_loss,
             active_params=active_params,
             compute_cost=compute_cost,
-            past_key_values=present_key_values if use_cache else None,
         )
     
     # ==================== AUXILIARY LOSS FUNCTIONS ====================
@@ -967,12 +928,11 @@ class zeroModel(BaseModel):
         """
         Performs greedy decoding to generate a sequence of tokens.
         At each step, the token with the highest probability is deterministically
-        selected as the next token. This method also applies temperature scaling
-        and an optional repetition penalty.
+        selected as the next token.
 
-        KV-cache path: when use_cache=True (default for greedy), the prompt is
-        processed once (prefill) and each new token is processed incrementally
-        with the cached K/V. This is O(T) per step instead of O(T²).
+        XORZEN uses SSM fixed-size context, NOT KV cache. Each generation step
+        recomputes the full sequence through the SSM scan. This is O(T) per step
+        for the SSM (fixed state) and O(T) for the local attention (recomputed).
 
         Args:
             input_ids (`torch.LongTensor`): A tensor of starting token IDs,
@@ -991,65 +951,17 @@ class zeroModel(BaseModel):
         # Track which sequences are finished
         unfinished_sequences = torch.ones(batch_size, dtype=torch.long, device=device)
 
-        # ===== PREFILL: process the entire prompt once and capture KV cache =====
-        use_cache = True
-        past_key_values = None
-        with torch.no_grad():
-            outputs = self(
-                input_ids,
-                return_dict=True,
-                use_cache=use_cache,
-            )
-            past_key_values = outputs.past_key_values
-            next_token_logits = outputs.logits[:, -1, :]  # [B, vocab]
-
-        # Apply temperature
-        if config.temperature != 1.0:
-            next_token_logits = next_token_logits / config.temperature
-
-        # Apply repetition penalty (on the full prompt)
-        if config.repetition_penalty != 1.0:
-            next_token_logits = self._apply_repetition_penalty(
-                next_token_logits,
-                input_ids,
-                config.repetition_penalty
-            )
-
-        # Greedy selection
-        next_tokens = torch.argmax(next_token_logits, dim=-1)
-
-        # Update finished sequences
-        if config.eos_token_id is not None:
-            pad_token_id = config.pad_token_id if config.pad_token_id is not None else 0
-            next_tokens = next_tokens * unfinished_sequences + pad_token_id * (1 - unfinished_sequences)
-            unfinished_sequences = unfinished_sequences.mul(
-                next_tokens.ne(config.eos_token_id).long()
-            )
-
-        # Append first generated token
-        input_ids = torch.cat([input_ids, next_tokens.unsqueeze(-1)], dim=-1)
-
-        # ===== INCREMENTAL DECODE: one token at a time using KV cache =====
-        for _ in range(config.max_new_tokens - 1):
-            if unfinished_sequences.max() == 0:
-                break
-
-            # Process only the single new token, reusing cached K/V
+        for _ in range(config.max_new_tokens):
+            # Forward pass — recompute full sequence (SSM handles context via fixed state)
             with torch.no_grad():
-                outputs = self(
-                    next_tokens.unsqueeze(-1),  # [B, 1] — only the new token
-                    return_dict=True,
-                    use_cache=use_cache,
-                    past_key_values=past_key_values,
-                )
-                past_key_values = outputs.past_key_values
-                next_token_logits = outputs.logits[:, -1, :]  # [B, vocab]
+                outputs = self(input_ids, return_dict=True)
+            next_token_logits = outputs.logits[:, -1, :]  # [B, vocab]
 
             # Apply temperature
             if config.temperature != 1.0:
                 next_token_logits = next_token_logits / config.temperature
 
-            # Apply repetition penalty (on the full generated sequence so far)
+            # Apply repetition penalty
             if config.repetition_penalty != 1.0:
                 next_token_logits = self._apply_repetition_penalty(
                     next_token_logits,
@@ -1060,7 +972,7 @@ class zeroModel(BaseModel):
             # Greedy selection
             next_tokens = torch.argmax(next_token_logits, dim=-1)
 
-            # Update finished sequences
+            # Update which sequences are finished
             if config.eos_token_id is not None:
                 pad_token_id = config.pad_token_id if config.pad_token_id is not None else 0
                 next_tokens = next_tokens * unfinished_sequences + pad_token_id * (1 - unfinished_sequences)
@@ -1068,8 +980,12 @@ class zeroModel(BaseModel):
                     next_tokens.ne(config.eos_token_id).long()
                 )
 
-            # Append
+            # Append to sequence
             input_ids = torch.cat([input_ids, next_tokens.unsqueeze(-1)], dim=-1)
+
+            # Stop if all sequences are finished
+            if unfinished_sequences.max() == 0:
+                break
 
         return input_ids
     

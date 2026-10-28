@@ -228,7 +228,7 @@ def gen_attention() -> Path:
     m, cfg, _, _, hidden = make_model_and_inputs()
     pathway = m.blocks[0].pathways["local"]
     with torch.no_grad():
-        y = pathway(hidden, attention_mask=None, position_bias=None)[0]  # [0] = output (present_kv is [1])
+        y = pathway(hidden, attention_mask=None, position_bias=None)
     return write_fixture(
         "06_attention",
         config={"hidden_size": cfg.hidden_size,

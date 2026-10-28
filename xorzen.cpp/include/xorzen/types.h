@@ -49,7 +49,6 @@ struct GenerationConfig {
     bool do_sample = true;
     int64_t pad_token_id = 0;
     int64_t eos_token_id = 2;
-    bool use_cache = true;
 };
 
 // ============================================================================

@@ -161,9 +161,8 @@ set(XORZEN_CORE_SOURCES
     # Training
     src/training/checkpoint.cpp
     src/training/trainer.cpp
-    # Storage (.xorzen format + infinite context KV)
+    # Storage (.xorzen format)
     src/storage/project.cpp
-    src/storage/kv_cache.cpp
     # AniXO Intelligent Architecture
     src/model/anime/anime_model.cpp
     src/model/anime/chunk_memory.cpp

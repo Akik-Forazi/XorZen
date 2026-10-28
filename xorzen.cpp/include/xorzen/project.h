@@ -88,7 +88,6 @@ public:
     static constexpr const char* ADAPTERS_DIR       = "adapters";
     static constexpr const char* MEMORY_DIR         = "memory";
     static constexpr const char* ROUTER_DIR         = "router";
-    static constexpr const char* KV_CACHE_DIR       = "memory/kv_cache";
     static constexpr const char* EPISODIC_DIR       = "memory/episodic";
     static constexpr const char* SEMANTIC_DIR       = "memory/semantic";
     static constexpr const char* COT_STATE_FILE     = "memory/cot_state.bin";

@@ -433,7 +433,6 @@ class ModelConfig(BaseConfig):
     
     # Optimization
     gradient_checkpointing: bool = True
-    use_cache: bool = True
     tie_word_embeddings: bool = True
     
     # Adaptive routing
@@ -1003,7 +1002,6 @@ class DataConfig(BaseConfig):
     
     # Caching
     cache_dir: str = ".cache/"
-    use_cache: bool = True
     overwrite_cache: bool = False
     
     # Streaming
