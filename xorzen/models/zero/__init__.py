@@ -17,9 +17,13 @@ Usage:
     >>> from xorzen.models.zero import zero277M  # Alias for zero_277M
     >>> model = zero277M()
 
-    # Method 4: Agentic variants (recursive inference with self-critique)
+    # Method 4: Agentic variants (Jima — recursive inference with self-critique)
+    >>> from xorzen.models.zero import jima_nano
+    >>> model = jima_nano()
+
+    # Method 5: Legacy agentic aliases (now use Jima internally)
     >>> from xorzen.models.zero import zero_agentic_nano
-    >>> model = zero_agentic_nano()
+    >>> model = zero_agentic_nano()  # Same as jima_nano
 """
 
 # Core architecture
@@ -41,10 +45,23 @@ from .variants import (
     zero277M,
 )
 
-# Agentic sub-variants (recursive inference, self-critique, persistent memory)
+# Jima (Agentic XORZEN) — uses full HASS/SlicedFFN/AdaptiveRouter/MoE/Merger
+from .jima_model import JimaModel, jima_nano, jima_micro
+
+# Agentic config (shared between old and new)
 from .agentic_config import ZeroAgenticConfig, ZeroAgenticSize
-from .agentic_model import ZeroAgenticModel
-from .agentic_variants import zero_agentic_nano, zero_agentic_micro
+
+# Backward compatibility: old ZeroAgenticModel now aliases JimaModel
+from .jima_model import JimaModel as ZeroAgenticModel
+
+# Backward compatibility: old agentic factory functions now use Jima
+def zero_agentic_nano(vocab_size=10000, **kwargs):
+    """Legacy alias for jima_nano."""
+    return jima_nano(vocab_size, **kwargs)
+
+def zero_agentic_micro(vocab_size=10000, **kwargs):
+    """Legacy alias for jima_micro."""
+    return jima_micro(vocab_size, **kwargs)
 
 __all__ = [
     # Core
@@ -65,10 +82,15 @@ __all__ = [
     'zeroModel277M',
     'zero277M',
 
-    # Agentic sub-variants
+    # Jima (Agentic XORZEN)
+    'JimaModel',
+    'jima_nano',
+    'jima_micro',
+
+    # Agentic (backward compat)
     'ZeroAgenticConfig',
     'ZeroAgenticSize',
-    'ZeroAgenticModel',
-    'zero_agentic_nano',
-    'zero_agentic_micro',
+    'ZeroAgenticModel',  # alias for JimaModel
+    'zero_agentic_nano',  # alias for jima_nano
+    'zero_agentic_micro',  # alias for jima_micro
 ]

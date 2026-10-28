@@ -1,12 +1,21 @@
-// xorzen_agentic.h — Zero Agentic Model (C++ implementation)
+// xorzen_agentic.h — Jima (Agentic XORZEN) Model (C++ implementation)
 //
-// Mirrors xorzen/models/zero/agentic_model.py exactly.
-// This is a SEPARATE architecture from XorzenModel — it uses:
-//   - FlashSSM (not the HASS SSM pathway)
-//   - GatedLinearAttention (not standard multi-head attention)
-//   - ZeroAgenticBlock (not HASSBlock)
-//   - Memory vault, ActionHead, CritiqueModule, RecursiveRouter
-//   - Latent CoT (different from InternalLatentCoT in the Zero model)
+// Jima = XorzenModel (HASS + SlicedFFN + AdaptiveRouter + MoE + MergerGate + CoT)
+//        + Agentic extensions (ActionHead, CritiqueModule, RecursiveRouter,
+//          memory_vault, recurrence)
+//
+// This uses the SAME XORZEN architecture as XorzenModel — HASS blocks with
+// Local/LowRank/SSM pathways, SlicedFFN with per-token width, AdaptiveRouter
+// with 4-axis routing, ShardedExpertFabric MoE, GatedMerger, InternalLatentCoT.
+//
+// Agentic extensions add:
+//   - Memory vault associative retrieval (after embeddings)
+//   - Recursive HASS re-processing (based on self-critique quality)
+//   - Action head (parallel to LM head)
+//   - Ponder cost regularization
+//
+// The previous ZeroAgenticModel (which used FlashSSM+GLA) is deprecated.
+// This header now includes the full XORZEN components.
 #pragma once
 
 #include <torch/torch.h>
@@ -15,6 +24,15 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <cmath>
+
+#include "xorzen/hass.h"        // HASSBlock, SlicedFFN, LocalAttentionPathway, etc.
+#include "xorzen/routing.h"     // AdaptiveRouter, RoutingDecision
+#include "xorzen/merger.h"      // XorzenMergerGate
+#include "xorzen/cot.h"         // InternalLatentCoT
+#include "xorzen/zmoe.h"        // ShardedExpertFabric
+#include "xorzen/ops.h"         // RMSNorm
+#include "xorzen/model.h"       // ModelConfig
 
 namespace xorzen {
 
@@ -26,6 +44,33 @@ struct ZeroAgenticConfig {
     int64_t num_attention_heads = 8;
     int64_t context_length = 2048;
     int64_t pad_token_id = 0;
+
+    // XORZEN architecture
+    bool use_sliced_ffn = true;
+    int64_t max_depth = 6;
+    int64_t min_depth = 1;
+    int64_t expert_count = 4;
+    int64_t top_k_experts = 2;
+    int64_t pathway_top_k = 2;
+    int64_t local_window_size = 128;
+    int64_t low_rank_dim = 96;
+    int64_t ssm_state_dim = 16;
+    int64_t ssm_kernel_size = 4;
+    std::string hidden_act = "gelu";
+    double dropout = 0.0;
+    double layer_norm_eps = 1e-5;
+    bool tie_word_embeddings = true;
+    bool gradient_checkpointing = false;
+
+    // Routing
+    bool cost_aware_routing = false;
+    double compute_budget = 1.0;
+    double eval_routing_noise = 0.0;
+    int64_t router_hidden_dim = 32;
+
+    // CoT
+    int64_t cot_dim = 4;
+    int64_t cot_components = 6;
 
     // Agentic capabilities
     bool use_latent_cot = true;
@@ -41,39 +86,51 @@ struct ZeroAgenticConfig {
     int64_t recurrence_depth = 1;
     bool adaptive_depth = true;
 
-    // SSM
-    int64_t d_state = 16;
+    // Width choices (for SlicedFFN)
+    std::vector<int64_t> width_choices = {};
+
+    // Convert to ModelConfig for XORZEN components
+    ModelConfig to_model_config() const {
+        ModelConfig cfg;
+        cfg.vocab_size = vocab_size;
+        cfg.hidden_size = hidden_size;
+        cfg.num_layers = num_layers;
+        cfg.max_depth = max_depth;
+        cfg.min_depth = min_depth;
+        cfg.context_length = context_length;
+        cfg.num_attention_heads = num_attention_heads;
+        cfg.n_kv_heads = num_attention_heads;
+        cfg.use_sliced_ffn = use_sliced_ffn;
+        cfg.expert_count = expert_count;
+        cfg.top_k_experts = top_k_experts;
+        cfg.pathway_top_k = pathway_top_k;
+        cfg.local_window_size = local_window_size;
+        cfg.low_rank_dim = low_rank_dim;
+        cfg.ssm_state_dim = ssm_state_dim;
+        cfg.ssm_kernel_size = ssm_kernel_size;
+        cfg.hidden_act = hidden_act;
+        cfg.dropout = dropout;
+        cfg.layer_norm_eps = layer_norm_eps;
+        cfg.tie_word_embeddings = tie_word_embeddings;
+        cfg.gradient_checkpointing = gradient_checkpointing;
+        cfg.cost_aware_routing = cost_aware_routing;
+        cfg.compute_budget = compute_budget;
+        cfg.eval_routing_noise = eval_routing_noise;
+        cfg.router_hidden_dim = router_hidden_dim;
+        cfg.cot_dim = cot_dim;
+        cfg.cot_components = cot_components;
+        cfg.pad_token_id = pad_token_id;
+        if (!width_choices.empty()) {
+            cfg.width_choices = width_choices;
+        } else {
+            cfg.width_choices = {hidden_size / 2, hidden_size};
+        }
+        return cfg;
+    }
 };
 
-// ─── InternalLatentCoT (agentic_model.py:18-45) ─────────────────
-struct InternalLatentCoTAgenticImpl : torch::nn::Module {
-    int64_t cot_dim;
-    torch::nn::Linear update_gate{nullptr};
-    torch::nn::Sequential transform{nullptr};
+// ─── Agentic Extensions (unchanged from previous version) ───────
 
-    InternalLatentCoTAgenticImpl(int64_t d_model, int64_t cot_dim_)
-        : cot_dim(cot_dim_) {
-        update_gate = register_module("update_gate",
-            torch::nn::Linear(d_model + cot_dim, cot_dim));
-        transform = register_module("transform", torch::nn::Sequential(
-            torch::nn::Linear(cot_dim, cot_dim),
-            torch::nn::GELU(),
-            torch::nn::Linear(cot_dim, cot_dim)));
-    }
-
-    torch::Tensor forward(const torch::Tensor& x, const torch::Tensor& prev_cot = {}) {
-        int64_t B = x.size(0), L = x.size(1);
-        torch::Tensor pc = prev_cot.defined() ? prev_cot :
-            torch::zeros({B, L, cot_dim}, x.options());
-        auto combined = torch::cat({x, pc}, -1);
-        auto gate = torch::sigmoid(update_gate->forward(combined));
-        auto thought = transform->forward(pc);
-        return (1 - gate) * pc + gate * thought;
-    }
-};
-TORCH_MODULE(InternalLatentCoTAgentic);
-
-// ─── ActionHead (agentic_model.py:47-57) ────────────────────────
 struct ActionHeadImpl : torch::nn::Module {
     torch::nn::Linear proj{nullptr};
     ActionHeadImpl(int64_t d_model, int64_t num_actions)
@@ -82,79 +139,18 @@ struct ActionHeadImpl : torch::nn::Module {
 };
 TORCH_MODULE(ActionHead);
 
-// ─── CritiqueModule (agentic_model.py:59-74) ────────────────────
 struct CritiqueModuleImpl : torch::nn::Module {
     torch::nn::Sequential quality_eval{nullptr};
     CritiqueModuleImpl(int64_t d_model)
         : quality_eval(register_module("quality_eval", torch::nn::Sequential(
-            torch::nn::Linear(d_model, d_model / 2),
+            torch::nn::Linear(d_model, std::max(int64_t(1), d_model / 2)),
             torch::nn::GELU(),
-            torch::nn::Linear(d_model / 2, 1),
+            torch::nn::Linear(std::max(int64_t(1), d_model / 2), 1),
             torch::nn::Sigmoid()))) {}
     torch::Tensor forward(const torch::Tensor& x) { return quality_eval->forward(x); }
 };
 TORCH_MODULE(CritiqueModule);
 
-// ─── FlashSSM (agentic_model.py:78-93) ──────────────────────────
-struct FlashSSMImpl : torch::nn::Module {
-    int64_t d_model;
-    torch::nn::Linear in_proj{nullptr}, x_proj{nullptr}, out_proj{nullptr};
-    torch::nn::Conv1d conv1d{nullptr};
-
-    FlashSSMImpl(int64_t d_model_, int64_t d_state = 16)
-        : d_model(d_model_) {
-        in_proj = register_module("in_proj", torch::nn::Linear(d_model, d_model * 2));
-        conv1d = register_module("conv1d", torch::nn::Conv1d(
-            torch::nn::Conv1dOptions(d_model, d_model, 4).groups(d_model).padding(3)));
-        x_proj = register_module("x_proj", torch::nn::Linear(d_model, d_model));
-        out_proj = register_module("out_proj", torch::nn::Linear(d_model, d_model));
-    }
-
-    torch::Tensor forward(const torch::Tensor& x) {
-        int64_t B = x.size(0), L = x.size(1);
-        auto u = in_proj->forward(x);
-        auto chunks = u.chunk(2, -1);
-        auto x_ssm = chunks[0];
-        auto z = chunks[1];
-        x_ssm = conv1d->forward(x_ssm.transpose(1, 2)).slice(2, 0, L).transpose(1, 2);
-        auto y = x_ssm * torch::sigmoid(x_proj->forward(x_ssm));
-        return out_proj->forward(y * torch::silu(z));
-    }
-};
-TORCH_MODULE(FlashSSM);
-
-// ─── GatedLinearAttention (agentic_model.py:95-115) ─────────────
-struct GatedLinearAttentionImpl : torch::nn::Module {
-    torch::nn::Linear q_proj{nullptr}, k_proj{nullptr}, v_proj{nullptr}, g_proj{nullptr}, out_proj{nullptr};
-
-    GatedLinearAttentionImpl(int64_t d_model, int64_t num_heads = 8) {
-        q_proj = register_module("q_proj", torch::nn::Linear(d_model, d_model));
-        k_proj = register_module("k_proj", torch::nn::Linear(d_model, d_model));
-        v_proj = register_module("v_proj", torch::nn::Linear(d_model, d_model));
-        g_proj = register_module("g_proj", torch::nn::Linear(d_model, d_model));
-        out_proj = register_module("out_proj", torch::nn::Linear(d_model, d_model));
-    }
-
-    torch::Tensor forward(const torch::Tensor& x, const torch::Tensor& attention_mask = {}) {
-        auto q = q_proj->forward(x);
-        auto k = k_proj->forward(x);
-        auto v = v_proj->forward(x);
-        auto g = torch::sigmoid(g_proj->forward(x));
-        if (attention_mask.defined()) {
-            auto m = attention_mask.unsqueeze(-1).to(torch::kFloat32);
-            k = k * m;
-            v = v * m;
-        }
-        // Linear attention: kv = relu(k) ⊗ v, cumsum, y = relu(q) · kv_cum
-        auto kv = torch::einsum("bld,ble->blde", {torch::relu(k), v});
-        auto kv_cum = kv.cumsum(1);
-        auto y = torch::einsum("bld,blde->ble", {torch::relu(q), kv_cum});
-        return out_proj->forward(y * g);
-    }
-};
-TORCH_MODULE(GatedLinearAttention);
-
-// ─── RecursiveRouter (agentic_model.py:117-123) ─────────────────
 struct RecursiveRouterImpl : torch::nn::Module {
     torch::nn::Linear halt_proj{nullptr};
     RecursiveRouterImpl(int64_t d_model)
@@ -163,80 +159,103 @@ struct RecursiveRouterImpl : torch::nn::Module {
 };
 TORCH_MODULE(RecursiveRouter);
 
-// ─── ZeroAgenticBlock (agentic_model.py:125-151) ────────────────
-struct ZeroAgenticBlockImpl : torch::nn::Module {
-    torch::nn::LayerNorm ln1{nullptr}, ln2{nullptr};
-    FlashSSM ssm{nullptr};
-    GatedLinearAttention attn{nullptr};
-    torch::nn::Sequential mlp{nullptr};
-    torch::Tensor mix_gate;
+// ─── Jima Model — XORZEN core + agentic extensions ──────────────
+//
+// This replaces the old ZeroAgenticModel. It uses the SAME HASS blocks,
+// SlicedFFN, AdaptiveRouter, ShardedExpertFabric, and GatedMerger as
+// XorzenModelImpl, plus the agentic extensions.
+//
+// The FlashSSM and GatedLinearAttention from the old implementation are
+// removed — the SSM pathway in HASSBlock already provides SSM, and the
+// LocalAttentionPathway provides attention.
 
-    ZeroAgenticBlockImpl(const ZeroAgenticConfig& config) {
-        ln1 = register_module("ln1", torch::nn::LayerNorm(torch::nn::LayerNormOptions({config.hidden_size})));
-        ln2 = register_module("ln2", torch::nn::LayerNorm(torch::nn::LayerNormOptions({config.hidden_size})));
-        ssm = register_module("ssm", FlashSSM(config.hidden_size, config.d_state));
-        attn = register_module("attn", GatedLinearAttention(config.hidden_size, config.num_attention_heads));
-        mlp = register_module("mlp", torch::nn::Sequential(
-            torch::nn::Linear(config.hidden_size, config.hidden_size * 4),
-            torch::nn::GELU(),
-            torch::nn::Linear(config.hidden_size * 4, config.hidden_size)));
-        mix_gate = register_parameter("mix_gate", torch::tensor({0.5}));
-    }
+struct JimaModelImpl : torch::nn::Module {
+    ZeroAgenticConfig agentic_config;
+    ModelConfig model_config;  // Converted from agentic_config for XORZEN components
+    bool test_mode = true;
 
-    torch::Tensor forward(const torch::Tensor& x_in, const torch::Tensor& attention_mask = {}) {
-        torch::Tensor x = x_in;
-        auto residual = x;
-        auto xn = ln1->forward(x);
-        auto mg = mix_gate.unsqueeze(0).unsqueeze(0);
-        auto x_mix = ssm->forward(xn) * mg + attn->forward(xn, attention_mask) * (1 - mg);
-        x = residual + x_mix;
-        residual = x;
-        x = ln2->forward(x);
-        return residual + mlp->forward(x);
-    }
-};
-TORCH_MODULE(ZeroAgenticBlock);
-
-// ─── ZeroAgenticModel (agentic_model.py:155-301) ────────────────
-struct ZeroAgenticModelImpl : torch::nn::Module {
-    ZeroAgenticConfig config;
-    torch::nn::Embedding token_embedding{nullptr}, pos_embedding{nullptr};
+    // XORZEN Core (identical to XorzenModelImpl)
+    torch::nn::Embedding token_embedding{nullptr}, position_embedding{nullptr};
+    torch::nn::Dropout embedding_dropout{nullptr};
+    InternalLatentCoT cot{nullptr};
+    AdaptiveRouter router{nullptr};
     torch::nn::ModuleList blocks{nullptr};
-    InternalLatentCoTAgentic latent_cot{nullptr};
-    torch::nn::Linear cot_to_hidden{nullptr};
-    ActionHead action_head{nullptr};
-    CritiqueModule critique{nullptr};
-    RecursiveRouter router{nullptr};
-    torch::Tensor memory_vault;
-    torch::nn::LayerNorm ln_f{nullptr};
+    ShardedExpertFabric moe{nullptr};
+    XorzenMergerGate merger{nullptr};
+    RMSNorm final_norm{nullptr};
     torch::nn::Linear lm_head{nullptr};
 
-    ZeroAgenticModelImpl(const ZeroAgenticConfig& cfg) : config(cfg) {
+    // Agentic Extensions
+    ActionHead action_head{nullptr};
+    CritiqueModule critique{nullptr};
+    RecursiveRouter recursive_router{nullptr};
+    torch::Tensor memory_vault;
+
+    bool cot_enabled = false;
+
+    JimaModelImpl(const ZeroAgenticConfig& cfg, bool test_mode_ = true)
+        : agentic_config(cfg), model_config(cfg.to_model_config()), test_mode(test_mode_) {
+
+        model_config.normalize();
+
+        // ═══ XORZEN Core ═══
         token_embedding = register_module("token_embedding",
-            torch::nn::Embedding(cfg.vocab_size, cfg.hidden_size));
-        pos_embedding = register_module("pos_embedding",
-            torch::nn::Embedding(cfg.context_length, cfg.hidden_size));
+            torch::nn::Embedding(model_config.vocab_size, model_config.hidden_size));
+        position_embedding = register_module("position_embedding",
+            torch::nn::Embedding(model_config.context_length, model_config.hidden_size));
+        embedding_dropout = register_module("embedding_dropout",
+            torch::nn::Dropout(model_config.dropout));
+
+        // CoT (frozen by default)
+        cot = register_module("cot", InternalLatentCoT(model_config));
+        _freeze_cot();
+
+        // Adaptive Router
+        router = register_module("router", AdaptiveRouter(model_config));
+
+        // HASS Blocks (with SlicedFFN, Local/LowRank/SSM pathways)
         blocks = register_module("blocks", torch::nn::ModuleList());
-        for (int64_t i = 0; i < cfg.num_layers; ++i)
-            blocks->push_back(ZeroAgenticBlock(cfg));
-        if (cfg.use_latent_cot) {
-            latent_cot = register_module("latent_cot",
-                InternalLatentCoTAgentic(cfg.hidden_size, cfg.latent_cot_dim));
-            cot_to_hidden = register_module("cot_to_hidden",
-                torch::nn::Linear(cfg.latent_cot_dim, cfg.hidden_size));
-        }
-        action_head = register_module("action_head", ActionHead(cfg.hidden_size, cfg.num_action_slots));
-        critique = register_module("critique", CritiqueModule(cfg.hidden_size));
-        router = register_module("router", RecursiveRouter(cfg.hidden_size));
-        memory_vault = register_parameter("memory_vault",
-            torch::randn({1, cfg.memory_slots, cfg.hidden_size}));
-        ln_f = register_module("ln_f", torch::nn::LayerNorm(torch::nn::LayerNormOptions({cfg.hidden_size})));
+        for (int64_t i = 0; i < model_config.num_layers; ++i)
+            blocks->push_back(HASSBlock(model_config, i));
+
+        // MoE
+        moe = register_module("moe", ShardedExpertFabric(model_config, test_mode));
+
+        // Merger Gate
+        merger = register_module("merger", XorzenMergerGate(model_config));
+
+        // Output
+        final_norm = register_module("final_norm", RMSNorm(
+            torch::nn::LayerNormOptions({model_config.hidden_size}).eps(model_config.layer_norm_eps)));
         lm_head = register_module("lm_head",
-            torch::nn::Linear(torch::nn::LinearOptions(cfg.hidden_size, cfg.vocab_size).bias(false)));
-        // Tie weights
+            torch::nn::Linear(torch::nn::LinearOptions(model_config.hidden_size, model_config.vocab_size).bias(false)));
         lm_head->weight = token_embedding->weight;
-        // Init weights
+        token_embedding->weight.data()[model_config.pad_token_id].zero_();
+
+        // ═══ Agentic Extensions ═══
+        memory_vault = register_parameter("memory_vault",
+            torch::randn({1, agentic_config.memory_slots, model_config.hidden_size}) * 0.02);
+        action_head = register_module("action_head",
+            ActionHead(model_config.hidden_size, agentic_config.num_action_slots));
+        critique = register_module("critique", CritiqueModule(model_config.hidden_size));
+        recursive_router = register_module("recursive_router",
+            RecursiveRouter(model_config.hidden_size));
+
         _init_weights();
+        lm_head->weight = token_embedding->weight;
+        token_embedding->weight.data()[model_config.pad_token_id].zero_();
+    }
+
+    void _freeze_cot() {
+        for (auto& p : cot->parameters())
+            p.set_requires_grad(false);
+        cot_enabled = false;
+    }
+
+    void enable_cot() {
+        for (auto& p : cot->parameters())
+            p.set_requires_grad(true);
+        cot_enabled = true;
     }
 
     void _init_weights() {
@@ -249,12 +268,7 @@ struct ZeroAgenticModelImpl : torch::nn::Module {
             if (auto* emb = m->as<torch::nn::Embedding>()) {
                 emb->weight.data().normal_(0.0, 0.02);
             }
-            if (auto* ln = m->as<torch::nn::LayerNorm>()) {
-                ln->weight.data().fill_(1.0);
-                if (ln->bias.defined()) ln->bias.data().zero_();
-            }
         }
-        lm_head->weight = token_embedding->weight;
     }
 
     struct Output {
@@ -270,56 +284,87 @@ struct ZeroAgenticModelImpl : torch::nn::Module {
                    const torch::Tensor& action_targets = {},
                    double action_loss_weight = 0.1) {
         int64_t B = input_ids.size(0), L = input_ids.size(1);
-        auto pos_ids = torch::arange(L).unsqueeze(0).expand({B, L});
-        auto x = token_embedding->forward(input_ids) + pos_embedding->forward(pos_ids);
+        auto device = input_ids.device();
 
-        // Memory vault retrieval
+        // ═══ STEP 1: EMBEDDINGS ═══
+        auto pos_ids = torch::arange(L, torch::kLong).unsqueeze(0).to(device).expand({B, L});
+        auto hidden = token_embedding->forward(input_ids) + position_embedding->forward(pos_ids);
+        hidden = embedding_dropout->forward(hidden);
+
+        // ═══ STEP 1.5: MEMORY VAULT (agentic extension) ═══
         auto vault = memory_vault.expand({B, -1, -1});
-        auto mem_scores = torch::bmm(x, vault.transpose(1, 2)) /
-                          std::sqrt(static_cast<double>(config.hidden_size));
+        auto mem_scores = torch::bmm(hidden, vault.transpose(1, 2)) /
+                          std::sqrt(static_cast<double>(model_config.hidden_size));
         auto mem_weights = torch::softmax(mem_scores, -1);
         auto mem_retrieved = torch::bmm(mem_weights, vault);
-        x = x + mem_retrieved;
+        hidden = hidden + mem_retrieved;
 
-        // Latent CoT
-        torch::Tensor latent_state;
-        if (config.use_latent_cot) {
-            latent_state = latent_cot->forward(x);
-            x = x + cot_to_hidden->forward(latent_state);
+        // ═══ STEP 2: CoT ═══
+        int64_t cot_total_dim = model_config.cot_dim * model_config.cot_components;
+        torch::Tensor cot_vector_seq;
+        if (cot_enabled) {
+            auto cot_result = cot->forward(hidden);
+            cot_vector_seq = std::get<0>(cot_result);
+        } else {
+            cot_vector_seq = torch::zeros({B, L, cot_total_dim}, hidden.options());
         }
 
+        // ═══ STEP 3: ADAPTIVE ROUTING ═══
+        auto routing_decision = router->forward(hidden, cot_vector_seq);
+
+        // ═══ STEP 4: HASS BLOCKS (with agentic recurrence) ═══
         int64_t total_recurrence_steps = 0;
-        torch::Tensor ponder_cost = torch::tensor(0.0, x.options());
+        torch::Tensor ponder_cost = torch::tensor(0.0, hidden.options());
 
-        for (auto& block_mod : *blocks) {
-            auto block = block_mod->as<ZeroAgenticBlock>();
-            x = block->forward(x, attention_mask);
+        for (int64_t layer_idx = 0; layer_idx < model_config.num_layers; ++layer_idx) {
+            auto block = blocks[layer_idx]->as<HASSBlock>();
+            auto layer_mask = routing_decision->depth_mask.index({torch::indexing::Slice(),
+                torch::indexing::Slice(), layer_idx});  // [B, T]
 
-            if (config.recurrence_depth > 1) {
-                for (int r = 0; r < config.recurrence_depth - 1; ++r) {
-                    auto halt_prob = router->forward(x);
-                    auto quality = critique->forward(x);
+            // HASS block forward (same as XorzenModelImpl)
+            auto block_out = block->forward(hidden, &(*routing_decision), attention_mask);
+
+            // STE mask blend
+            auto mask_3d = layer_mask.unsqueeze(-1);
+            hidden = block_out * mask_3d + hidden * (1.0 - mask_3d);
+
+            // ═══ AGENTIC RECURRENCE ═══
+            if (agentic_config.recurrence_depth > 1 && !this->is_training()) {
+                for (int r = 0; r < agentic_config.recurrence_depth - 1; ++r) {
+                    auto halt_prob = recursive_router->forward(hidden);
+                    auto quality = critique->forward(hidden);
                     auto agentic_halt = halt_prob * quality;
                     ponder_cost = ponder_cost + agentic_halt.mean();
-                    auto new_x = block->forward(x, attention_mask);
-                    x = agentic_halt * x + (1 - agentic_halt) * new_x;
-                    if (config.use_latent_cot) {
-                        latent_state = latent_cot->forward(x, latent_state);
-                        x = x + 0.1 * cot_to_hidden->forward(latent_state);
-                    }
+
+                    auto new_hidden = block->forward(hidden, &(*routing_decision), attention_mask);
+                    hidden = agentic_halt * hidden + (1 - agentic_halt) * new_hidden;
+
                     if (agentic_halt.mean().item<double>() > 0.8) break;
                     total_recurrence_steps++;
                 }
             }
         }
 
-        auto actions = action_head->forward(x);
-        x = ln_f->forward(x);
-        auto logits = lm_head->forward(x);
+        // ═══ STEP 5: MoE ═══
+        int64_t batch_seq = B * L;
+        auto hidden_flat = hidden.reshape({batch_seq, -1});
+        auto expert_indices_flat = routing_decision->expert_indices.reshape({batch_seq, -1});
+        auto expert_weights_flat = routing_decision->expert_weights.reshape({batch_seq, -1});
+        auto moe_output_flat = moe->forward(hidden_flat, expert_indices_flat, expert_weights_flat);
+        auto moe_output = moe_output_flat.reshape({B, L, -1});
 
+        // ═══ STEP 6: MERGER ═══
+        auto merged = merger->forward(hidden, moe_output, cot_vector_seq, attention_mask);
+
+        // ═══ STEP 7: OUTPUT ═══
+        hidden = final_norm->forward(merged);
+        auto logits = lm_head->forward(hidden);
+        auto actions = action_head->forward(hidden);
+
+        // ═══ STEP 8: LOSS ═══
         torch::Tensor loss;
         if (labels.defined()) {
-            auto sl = logits.slice(1, 0, L - 1).contiguous().view({-1, config.vocab_size});
+            auto sl = logits.slice(1, 0, L - 1).contiguous().view({-1, model_config.vocab_size});
             auto sb = labels.slice(1, 1, L).contiguous().view({-1});
             loss = torch::nn::functional::cross_entropy(sl, sb);
             loss = loss - 0.01 * ponder_cost;
@@ -342,36 +387,21 @@ struct ZeroAgenticModelImpl : torch::nn::Module {
         if (tokens.dim() == 1) tokens = tokens.unsqueeze(0);
         for (int64_t i = 0; i < max_length; ++i) {
             auto context = tokens;
-            if (context.size(1) > config.context_length)
-                context = context.slice(1, context.size(1) - config.context_length);
+            if (context.size(1) > model_config.context_length)
+                context = context.slice(1, context.size(1) - model_config.context_length);
             auto out = forward(context);
             auto next = out.logits.select(1, -1).argmax(-1, false).unsqueeze(1);
             tokens = torch::cat({tokens, next}, 1);
         }
         return tokens;
     }
-
-    void load_from_tensor_map(const std::unordered_map<std::string, torch::Tensor>& sd) {
-        torch::NoGradGuard ng;
-        for (auto& nv : named_parameters()) {
-            auto it = sd.find(nv.key());
-            if (it != sd.end() && it->second.sizes() == nv.value().sizes()) {
-                nv.value().copy_(it->second);
-            }
-        }
-        if (config.vocab_size > 0)
-            lm_head->weight = token_embedding->weight;
-    }
-
-    void save_to_tensor_map(const std::string& dir) const {
-        std::filesystem::create_directories(dir);
-        for (auto& nv : named_parameters()) {
-            auto tc = nv.value().to(torch::kCPU).contiguous();
-            std::ofstream f(dir + "/param_" + nv.key() + ".bin", std::ios::binary);
-            f.write(reinterpret_cast<const char*>(tc.data_ptr()), tc.nbytes());
-        }
-    }
 };
-TORCH_MODULE(ZeroAgenticModel);
+TORCH_MODULE(JimaModel);
+
+// ─── Backward compatibility alias ────────────────────────────────
+// Old code that references ZeroAgenticModel will still compile,
+// but it now uses the full XORZEN architecture.
+using ZeroAgenticModel = JimaModel;
+using ZeroAgenticModelImpl = JimaModelImpl;
 
 } // namespace xorzen

@@ -41,10 +41,19 @@ from .zero import (
     zero277M,  # Legacy alias
 )
 
-# zero Agentic models (recursive inference with self-critique)
-from .zero.agentic_model import ZeroAgenticModel
+# Jima (Agentic XORZEN) — uses full HASS/SlicedFFN/AdaptiveRouter/MoE/Merger
+from .zero.jima_model import JimaModel, jima_nano, jima_micro
 from .zero.agentic_config import ZeroAgenticConfig
-from .zero.agentic_variants import zero_agentic_nano, zero_agentic_micro
+
+# Backward compatibility: ZeroAgenticModel now aliases JimaModel
+from .zero.jima_model import JimaModel as ZeroAgenticModel
+
+# Backward compatibility: old agentic factory functions
+def zero_agentic_nano(vocab_size=10000, **kwargs):
+    return jima_nano(vocab_size, **kwargs)
+
+def zero_agentic_micro(vocab_size=10000, **kwargs):
+    return jima_micro(vocab_size, **kwargs)
 
 # Greed model (conversation quality evaluator)
 from .greed import GreedModel
@@ -68,11 +77,16 @@ __all__ = [
     'zero_7B',
     'zero277M',
 
-    # zero Agentic
-    'ZeroAgenticModel',
+    # Jima (Agentic XORZEN)
+    'JimaModel',
+    'jima_nano',
+    'jima_micro',
+
+    # Agentic (backward compat — aliases for Jima)
+    'ZeroAgenticModel',  # alias for JimaModel
     'ZeroAgenticConfig',
-    'zero_agentic_nano',
-    'zero_agentic_micro',
+    'zero_agentic_nano',  # alias for jima_nano
+    'zero_agentic_micro',  # alias for jima_micro
 
     # Greed
     'GreedModel',
