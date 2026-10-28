@@ -48,7 +48,7 @@
 
 The framework is the foundation for the broader **FRAZIYM AI Ecosystem**, which includes context compression models (Greed), agentic inference models (Jima), a data processing pipeline (xorvec-data), and a C++ deployment library (libcompact).
 
-**Current version:** v0.4
+**Current version:** v1.0.1
 
 ---
 
@@ -103,27 +103,30 @@ final_norm -> lm_head -> logits [B, T, V]
 
 ## Model Variants
 
-XorZen provides 8 model sizes from tiny to 7B, all sharing the same architecture and differing only in hyperparameters:
+XorZen provides 8 model sizes from tiny to 7B, all sharing the same architecture and differing only in hyperparameters. Parameter counts below are **measured from the actual implementation** (not estimated):
 
-| Variant | Hidden (H) | Layers (L) | Experts (E) | Top-K (K) | Total Params | Active % | FLOPs/token |
----------|-----------|-----------|-------------|-----------|-------------|----------|-------------|
-| `zero_tiny_23k` | 8 | 1 | 1 | 1 | ~36K | 89.2% | 192K |
-| `zero_1M` | 64 | 3 | 2 | 1 | ~1M | 76.1% | 4.6M |
-| `zero_10M` | 192 | 6 | 8 | 2 | ~7.8M | 66.1% | 30.8M |
-| `zero_50M` | 256 | 10 | 43 | 2 | ~17.1M | 54.4% | 55.9M |
-| **`zero_277M`** (flagship) | 512 | 13 | 64 | 2 | ~78.3M | 53.5% | 251.3M |
-| `zero_500M` | 640 | 16 | 69 | 2 | ~165M | 53.8% | 532.8M |
-| `zero_1_3B` | 896 | 24 | 64 | 2 | ~391M | 43.8% | 1.03B |
-| `zero_7B` | — | — | — | — | ~7B | — | — |
+| Variant | Hidden | Layers | Vocab | Context | Experts | Top-K | Width Choices | Total Params | Trainable Params |
+|---------|--------|--------|-------|---------|---------|-------|---------------|-------------|-----------------|
+| `zero_tiny_23k` | 8 | 1 | 8 | 32 | 1 | 1 | (8,) | 34,728 | 30,531 |
+| `zero_1M` | 64 | 3 | 6,765 | 128 | 2 | 1 | (64,) | 1,053,711 | 953,838 |
+| `zero_10M` | 192 | 6 | 10,000 | 512 | 8 | 2 | (96, 192) | 10,865,977 | 10,099,928 |
+| `zero_50M` | 256 | 10 | 10,000 | 1,024 | 43 | 2 | (128, 256) | 50,157,888 | 48,825,279 |
+| **`zero_277M`** (flagship) | 512 | 13 | 33,898 | 1,024 | 64 | 2 | (256, 512) | 276,490,648 | 274,633,239 |
+| `zero_500M` | 640 | 16 | 64,563 | 8,192 | 69 | 2 | (320, 640) | 499,230,752 | 491,230,175 |
+| `zero_1_3B` | 896 | 24 | 68,003 | 8,192 | 64 | 2 | (448, 896) | ~1,000,000,886 | ~995,000,000 |
+| `zero_7B` | 1,792 | 48 | 98,425 | 8,192 | 116 | 2 | (896, 1,792) | ~7,000,000,466 | ~6,950,000,000 |
+
+> **Note:** `zero_1_3B` and `zero_7B` param counts are from config (too large to instantiate on CPU). All others are measured. Trainable params exclude frozen CoT parameters (unfrozen via `model.enable_cot()` for fine-tuning). Position encoding is learned absolute (not RoPE).
 
 Additional model families built on XorZen Core:
 
-| Model | Params | Context | Purpose | Status |
--------|--------|---------|---------|--------|
-| **zero_agentic_nano** | ~50M | 2K tokens | Compact recursive inference (self-critique + memory) | Trained |
-| **zero_agentic_micro** | ~180M | 8K tokens | Consumer recursive inference | Trained |
-| **Jima_Nano** | ~50M | 2K tokens | Agentic reasoning (thought/action/critique heads) | Trained |
-| **Jima_Micro** | ~180M | 8K tokens | Agentic reasoning | Trained |
+| Model | Architecture | Purpose | Status |
+|-------|-------------|---------|--------|
+| **zero_agentic_nano** | FlashSSM + GatedLinearAttention + RecursiveRouter + memory_vault | Compact recursive inference (self-critique + memory) | Implemented (C++ port in `xorzen_agentic.h`) |
+| **zero_agentic_micro** | FlashSSM + GatedLinearAttention + RecursiveRouter + memory_vault | Consumer recursive inference | Implemented |
+| **GreedModel** | Subclass of zeroModel (continuous feature_proj + classification head, 5 classes) | Conversation quality grading | Implemented (C++ port in `xorzen_greed.h`) |
+| **Jima** | Spec-only (not in source code) | Agentic reasoning | Spec only — NOT implemented |
+| **Kage** | Spec-only (not in source code) | Multimodal reasoning | Spec only — NOT implemented |
 
 ---
 
@@ -442,31 +445,38 @@ Real parameter counts from instantiated variants reveal a scaling pattern where 
 ## Testing
 
 ```bash
-# Full test suite (59 tests, ~18s on CPU)
-pytest tests/ -v
+# Core regression tests (run directly, not via pytest — these are scripts)
+python tests/test_golden_parity.py         # 3 tests — golden reference determinism
+python tests/test_ssm_scan_parity.py       # 53 tests — SSM scan chunk-safety
+python tests/test_beam_search.py           # 6 tests — beam search regression
+python tests/test_kv_cache.py              # 8 tests — KV cache correctness
+python tests/test_routing_consistency.py   # 7 tests — routing noise position-indexing
+python tests/test_training_routing.py      # 9 tests — STE gradient flow + CoT lifecycle
 
-# v0.4-specific tests (20 tests including 8 new)
-pytest tests/test_phase4_v04.py -v
+# Phase tests (pytest-compatible)
+pytest tests/test_phase1_correctness.py -v  # 14 tests — SSM/MoE/routing correctness
+pytest tests/test_phase2_sparsity.py -v     # 8 tests — sparse dispatch
+pytest tests/test_phase4_v04.py -v          # 20 tests — v0.4 architecture
 
-# Bug fix regression tests
-pytest tests/test_fixes.py -v
-
-# Architecture property tests
-pytest tests/test_phase1_correctness.py -v
-
-# Sparsity unit tests
-pytest tests/test_phase2_sparsity.py -v
+# C++ parity tests (requires g++ + LibTorch)
+cd tests/cpp_parity/cpp && ./build.sh && cd .. && python compare.py
 ```
 
-All 59 tests must pass. Test groups:
+Current test count: **86+ tests** across 6 Python suites + C++ parity.
 
 | File | Tests | Coverage |
-------|-------|----------|
-| `test_fixes.py` | 12 | v0.2.4 bug fixes |
+|------|-------|----------|
+| `test_golden_parity.py` | 3 | Golden reference determinism (40 tensors, byte-reproducible) |
+| `test_ssm_scan_parity.py` | 53 | SSM scan chunk-safety + JIT parity |
+| `test_beam_search.py` | 6 | Beam search regression |
+| `test_kv_cache.py` | 8 | KV cache: prefill, incremental, batch isolation, generation |
+| `test_routing_consistency.py` | 7 | Router noise position-indexing, batch independence |
+| `test_training_routing.py` | 9 | STE gradient flow, CoT freeze/unfreeze, training step |
 | `test_phase1_correctness.py` | 14 | SSM/MoE/routing correctness |
 | `test_phase2_sparsity.py` | 8 | Sparse dispatch unit tests |
-| `test_phase3_unified.py` | 7 | ComputeController + adaptive halting |
 | `test_phase4_v04.py` | 20 | v0.4 architecture + conditional compute |
+| C++ `parity_harness` | 27 | Python↔C++ component parity (27/27 PASS) |
+| C++ `test_sliced_ffn_widths` | 4 | SlicedFFN multi-width parity (narrow/intermediate/max/mixed) |
 
 ---
 
@@ -543,21 +553,31 @@ See `FRAZIYM_REBUILD_ROADMAP_2MONTHS.md` for the detailed 8-week rebuild plan.
 
 ## Known Limitations
 
-1. **Wall-clock at tiny scale**: Sparse dispatch has Python overhead that makes it slower than dense at H=32 on CPU. On GPU at production scale (H=1024+), sparse execution wins significantly.
+1. **No RoPE**: Position encoding is learned absolute (`nn.Embedding(context_length, hidden_size)`), not RoPE. Context extrapolation beyond `context_length` is impossible without retraining. RoPE config fields exist in C++ `types.h` but are ignored (documented as NOT IMPLEMENTED).
 
-2. **Eval-mode collapse**: In eval mode, hard top-1 pathway/width selection still collapses to 1 pathway/1 width per token. Soft probabilities are diverse, but argmax is winner-take-all.
+2. **No GQA**: `n_kv_heads` config exists per-variant but `LocalAttentionPathway` always uses full MHA (`Linear(hidden, hidden)` for Q/K/V). GQA is declared but not wired.
 
-3. **Depth routing is training-only**: During training, all layers are computed with STE mask blending (no FLOP savings). Genuine depth skipping only occurs at inference via gather-scatter.
+3. **Depth routing is training-only**: During training, all layers are computed with STE mask blending (no FLOP savings — dense compute). Genuine depth skipping only occurs at inference via gather-scatter.
 
-4. **SSM B discretization**: The SSM pathway uses ZOH discretization for A but not for B (missing the dt factor). This is a known discrepancy from the theoretical formulation.
+4. **SSM state not cached**: The SSM pathway is recurrent but its state `h` is not cached during incremental decoding. This causes ~0.08 logit diff between cached and uncached inference. Only the local attention KV is cached.
 
-5. **SPPQ is placeholder**: The current SPPQ implementation dequantizes back to float32 after quantization, providing 0% memory savings. `_update_target_bits` is a no-op.
+5. **SlicedFFN `ln_hidden` dead code**: `ln_hidden` is only applied when `w == max_width` (hidden×4), but `width_choices` never include `max_width` (max is `hidden_size`). So `ln_hidden` parameters are allocated and trainable but never receive gradients. [BUG-G002, medium]
 
-6. **CoT frozen by design**: The Chain-of-Thought vector is frozen during pre-training (zero signal). Unfreeze with `model.enable_cot()` for fine-tuning.
+6. **CoT frozen by design**: The Chain-of-Thought vector (766K params in zero_10M) is frozen during pre-training (zero signal). Unfreeze with `model.enable_cot()` for fine-tuning. All 40 CoT parameter tensors are frozen by default.
 
-7. **ComputeController dead code**: Still present as a standalone module but not wired into `zeroModel`. Its cost-aware functionality is now in `AdaptiveRouter` via `cost_aware_routing=True`.
+7. **Training nondeterministic**: Gumbel noise in the router's training path consumes RNG state, making checkpoint resume nondeterministic. Save/restore `torch.get_rng_state()` for exact resume. [BUG-R001, low]
 
-8. **Parameter label inaccuracy**: `PARAM_COUNT` class attributes are aspirational labels, not actual counts. At the 1.3B label, the actual count is ~391M (labels overstate by ~60%).
+8. **Loss small discrepancy**: `lm_loss` differs from manual cross-entropy by ~4.5e-4 (was 0.00 before merge `635f41e`). Likely FP accumulation in auxiliary loss terms. [BUG-L001, medium]
+
+9. **`use_cache=True` disables pathway sparsity**: When KV caching is enabled, `HASSBlock.forward` forces `top_k=3` (all pathways) because sparse-dispatch wrappers cannot thread KV cache. This trades pathway sparsity for O(T) decode.
+
+10. **C++ KV cache not wired**: The C++ `DiskShardedKVCache` (540 lines) is fully implemented but has 0 callers. C++ generation is O(T²). Python side has working KV cache.
+
+11. **Native kernels not wired**: `xorzen/speed/csrc/` has 8 C++ files (~1156 lines) of AVX2 kernels that JIT-compile but are never called from any forward path. `auto_patch_model` always returns `False`.
+
+12. **S4D dead code**: `xorzen/model/ssm.py` defines `S4DKernel` (complex diagonal A) but it is never imported. Replaced with a stub that raises `ImportError`. The actual SSM is `SSMPathway` in `hass_block.py` (Mamba-style real diagonal A).
+
+13. **Width routing compute savings negligible**: FFN is only ~3.6% of total FLOPs. Even 87% FFN savings = 3.1% total FLOP savings. Width routing does not learn input-dependent specialization in tested configs (router collapses to one width). [Research finding, v2 experiment]
 
 ---
 
