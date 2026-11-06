@@ -186,3 +186,21 @@ python tests/test_micro_overfit.py
 ```
 
 Expected: 6/6 PASS, micro-overfit loss < 0.5 at step 100.
+
+---
+
+## 9. NHI-MATRIX PROGRAM (added 2026-11-06)
+
+XorZen is also the **L0 substrate of NHI-matrix** — a purpose-first non-human
+intelligence program with its own doctrine, executed verification log, and experiments.
+
+Agents working on that program — or wanting the *measured-not-documented* view of this
+engine (claimed-vs-actual params, live zero_1M architecture, performance envelope,
+findings #1–#9 incl. the `generate()` context-overflow bug) — should read:
+
+- **[`NHI/README.md`](NHI/README.md)** — the XorZen × NHI-matrix handoff kit (start here)
+- `NHI/AGENTS.md` — rules of engagement (receipts culture, sandbox survival)
+- `NHI/XORZEN_NOTES.md` — the engine as measured
+- `NHI/NHI_MATRIX.md` — the program: doctrine, stack, evidence status, next work
+
+Canonical repo: `https://github.com/Akik-Forazi/NHI-matrix`
