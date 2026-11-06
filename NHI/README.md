@@ -28,8 +28,9 @@ rules of engagement, proven commands, open work — lives in or is linked from h
 | 0 | [`BOOT_PROMPT.md`](BOOT_PROMPT.md) | Paste as first message to a fresh agent — this bootstraps it into the program |
 | 1 | [`../AGENT_HANDOFF.md`](../AGENT_HANDOFF.md) | Engine dev state, outstanding XorZen tasks, architecture quick reference |
 | 2 | [`AGENTS.md`](AGENTS.md) | The contract: receipts culture, doctrine, sandbox survival, proven commands |
-| 3 | [`XORZEN_NOTES.md`](XORZEN_NOTES.md) | The engine *as measured* — not as documented: params, perf, defects #1–#9 |
-| 4 | [`NHI_MATRIX.md`](NHI_MATRIX.md) | The program: doctrine, L0–L5 stack, what is proven, what is next (exp-002) |
+| 3 | [`TESS.md`](TESS.md) | Persona charter & origin — the voice you inherit, and where it came from |
+| 4 | [`XORZEN_NOTES.md`](XORZEN_NOTES.md) | The engine *as measured* — not as documented: params, perf, defects #1–#9 |
+| 5 | [`NHI_MATRIX.md`](NHI_MATRIX.md) | The program: doctrine, L0–L5 stack, what is proven, what is next (exp-002) |
 
 ## Canonical links (NHI-matrix, branch `main` @ `9b69c0a`)
 
