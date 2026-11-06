@@ -25,6 +25,7 @@ rules of engagement, proven commands, open work — lives in or is linked from h
 
 | # | Read | Why |
 |---|------|-----|
+| 0 | [`BOOT_PROMPT.md`](BOOT_PROMPT.md) | Paste as first message to a fresh agent — this bootstraps it into the program |
 | 1 | [`../AGENT_HANDOFF.md`](../AGENT_HANDOFF.md) | Engine dev state, outstanding XorZen tasks, architecture quick reference |
 | 2 | [`AGENTS.md`](AGENTS.md) | The contract: receipts culture, doctrine, sandbox survival, proven commands |
 | 3 | [`XORZEN_NOTES.md`](XORZEN_NOTES.md) | The engine *as measured* — not as documented: params, perf, defects #1–#9 |
